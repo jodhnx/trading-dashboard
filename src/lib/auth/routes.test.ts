@@ -6,10 +6,11 @@ import {
 } from "./routes";
 
 describe("route protection helpers", () => {
-  it("allows only the login page and health endpoint as public", () => {
+  it("allows login, health, and cron pipeline as public middleware paths", () => {
     expect(isPublicPath("/login")).toBe(true);
     expect(isPublicPath("/login/reset")).toBe(true);
     expect(isPublicPath("/api/health")).toBe(true);
+    expect(isPublicPath("/api/cron/daily-pipeline")).toBe(true);
     expect(isPublicPath("/api/auth/debug")).toBe(true);
     expect(isPublicPath("/")).toBe(false);
     expect(isPublicPath("/settings")).toBe(false);

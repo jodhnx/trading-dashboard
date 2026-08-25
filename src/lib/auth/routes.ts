@@ -7,6 +7,9 @@ export function isPublicPath(pathname: string): boolean {
   if (pathname === "/api/health") {
     return true;
   }
+  if (pathname === "/api/cron/daily-pipeline") {
+    return true;
+  }
   if (process.env.NODE_ENV !== "production" && pathname === "/api/auth/debug") {
     return true;
   }

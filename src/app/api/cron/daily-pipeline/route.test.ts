@@ -19,12 +19,16 @@ describe("POST /api/cron/daily-pipeline", () => {
     runDailyPipeline.mockReset();
   });
 
-  it("returns 401 for unauthorized requests", async () => {
+  it("returns 401 for unauthorized requests at the route layer", async () => {
     verifyCronAuthorization.mockReturnValue(false);
     const response = await POST(
       new Request("http://localhost/api/cron/daily-pipeline", { method: "POST" }),
     );
     expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Unauthorized",
+    });
     expect(runDailyPipeline).not.toHaveBeenCalled();
   });
 
