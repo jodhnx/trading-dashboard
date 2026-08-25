@@ -1,0 +1,12 @@
+export type { NewsProvider } from "./provider";
+export type { NewsItem, StoredNews, NewsListResult, NewsIngestResult } from "./types";
+export { NewsUnavailableError } from "./errors";
+export { MockNewsProvider } from "./mock-provider";
+export { NewsApiProvider } from "./newsapi-provider";
+export { NewsService } from "./news-service";
+export { newsContentHash, newsIdentityKey } from "./hash";
+export { dedupeNews, dedupeByIdentity } from "./dedupe";
+export { mapNewsAssets } from "./mapping";
+export { validateRawNews } from "./validation";
+export { classifyCategory, classifyRelevance } from "./classify";
+export { isNewsStale } from "./stale";
