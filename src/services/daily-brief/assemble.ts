@@ -25,6 +25,7 @@ import {
 } from "./classify";
 import { briefDayBoundsUtc } from "./date";
 import { DAILY_BRIEF_PROMPT_VERSION, DAILY_BRIEF_TIMEFRAME } from "./types";
+import type { BriefPersistence } from "./persistence";
 import type {
   BriefAiItem,
   BriefAiStatus,
@@ -76,11 +77,14 @@ export async function assembleDailyBriefInput(input: {
   email: string | null;
   briefDate: string;
   now?: Date;
+  persistence?: BriefPersistence;
 }): Promise<AssembledBrief> {
   const now = input.now ?? new Date();
   const generatedAt = now.toISOString();
   const symbols = MARKET_WATCHLIST.map((asset) => asset.symbol);
-  const settings = await getOrCreateAccountSettings(input.userId, input.email);
+  const settings = await getOrCreateAccountSettings(input.userId, input.email, {
+    persistence: input.persistence,
+  });
   const risk = toTradingRiskSettings(settings);
   const market = createMarketDataService();
 
@@ -145,6 +149,7 @@ export async function assembleDailyBriefInput(input: {
         userId: input.userId,
         symbol,
         limit: 1,
+        persistence: input.persistence,
       });
       const latest = analyses[0];
       if (latest) {

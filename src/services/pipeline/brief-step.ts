@@ -17,6 +17,7 @@ export async function runPipelineBriefForUser(input: {
     date: input.briefDate,
     client: input.client,
     now: input.now,
+    persistence: "admin",
   });
 
   if (result.ok) {

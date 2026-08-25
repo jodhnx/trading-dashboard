@@ -12,7 +12,32 @@ import {
 } from "./request-guard";
 import { parseBriefDateParam, utcBriefDate } from "./date";
 import { DAILY_BRIEF_PROMPT_VERSION } from "./types";
+import type { BriefPersistence } from "./persistence";
 import type { GenerateBriefResult } from "./types";
+
+function logDailyBriefAssembleFailure(input: {
+  userId: string;
+  briefDate: string;
+  error: unknown;
+}): void {
+  const message =
+    input.error instanceof Error ? input.error.message : "unknown_error";
+  console.error("[daily-brief] assemble failed", {
+    userId: input.userId,
+    briefDate: input.briefDate,
+    reason: message.slice(0, 200),
+  });
+}
+
+function logDailyBriefPersistFailure(input: {
+  userId: string;
+  briefDate: string;
+}): void {
+  console.error("[daily-brief] persist failed", {
+    userId: input.userId,
+    briefDate: input.briefDate,
+  });
+}
 
 export async function generateDailyBrief(input: {
   userId: string;
@@ -20,6 +45,7 @@ export async function generateDailyBrief(input: {
   date?: string | null;
   client?: OpenAiClient | null;
   now?: Date;
+  persistence?: BriefPersistence;
 }): Promise<GenerateBriefResult> {
   const now = input.now ?? new Date();
   const parsed = parseBriefDateParam(input.date, now);
@@ -41,6 +67,7 @@ export async function generateDailyBrief(input: {
       userId: input.userId,
       briefDate: parsed.date,
       now,
+      persistence: input.persistence,
     });
     if (existing) {
       return {
@@ -65,8 +92,14 @@ export async function generateDailyBrief(input: {
         email: input.email,
         briefDate: parsed.date,
         now,
+        persistence: input.persistence,
       });
-    } catch {
+    } catch (error) {
+      logDailyBriefAssembleFailure({
+        userId: input.userId,
+        briefDate: parsed.date,
+        error,
+      });
       return {
         ok: false,
         code: "DATA_UNAVAILABLE",
@@ -95,9 +128,14 @@ export async function generateDailyBrief(input: {
       aiStatus: summarized.aiStatus,
       isMock: client?.isMock ?? false,
       generatedAt: snapshot.generatedAt,
+      persistence: input.persistence,
     });
 
     if (!stored) {
+      logDailyBriefPersistFailure({
+        userId: input.userId,
+        briefDate: parsed.date,
+      });
       return {
         ok: false,
         code: "PERSISTENCE_FAILED",

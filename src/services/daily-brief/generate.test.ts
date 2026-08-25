@@ -137,4 +137,93 @@ describe("generateDailyBrief", () => {
     expect(result.ok).toBe(true);
     expect(persistBrief).toHaveBeenCalled();
   });
+
+  it("propagates admin persistence through cron brief generation", async () => {
+    findBriefByDate.mockResolvedValue(null);
+    createOpenAiClient.mockReturnValue(null);
+    assembleDailyBriefInput.mockResolvedValue({
+      snapshot: {
+        briefDate: "2026-08-25",
+        timezone: "UTC",
+        timeframe: "1day",
+        generatedAt: "2026-08-25T12:00:00.000Z",
+        symbols: ["NVDA"],
+        marketOverview: [],
+        technicalConditions: [],
+        tradingSetups: [],
+        importantNews: [],
+        macroEvents: [],
+        aiAnalyses: [],
+        topOpportunities: [],
+        watchlist: [],
+        noTradeAssets: [],
+        risks: [],
+        dataStatus: "LIVE",
+        newsStatus: "UNAVAILABLE",
+        aiStatus: "SKIPPED",
+        model: null,
+        promptVersion: "daily-brief-v1",
+      },
+      marketRegime: "MIXED",
+      riskEnvironment: "CAUTIOUS",
+      summary: "Deterministic",
+      finalStatus: "NO_TRADE",
+    });
+    summarizeDailyBrief.mockResolvedValue({
+      summary: "Deterministic",
+      marketRegime: "MIXED",
+      riskEnvironment: "CAUTIOUS",
+      risks: [],
+      aiStatus: "AI_UNAVAILABLE",
+      model: null,
+      promptVersion: "daily-brief-summary-v1",
+      notes: [],
+    });
+    persistBrief.mockResolvedValue({ id: "b1" });
+
+    await generateDailyBrief({
+      userId: "user-1",
+      email: null,
+      date: "2026-08-25",
+      persistence: "admin",
+    });
+
+    expect(findBriefByDate).toHaveBeenCalledWith(
+      expect.objectContaining({ persistence: "admin" }),
+    );
+    expect(assembleDailyBriefInput).toHaveBeenCalledWith(
+      expect.objectContaining({ persistence: "admin" }),
+    );
+    expect(persistBrief).toHaveBeenCalledWith(
+      expect.objectContaining({ persistence: "admin" }),
+    );
+  });
+
+  it("logs assemble failures without exposing secrets in the API response", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    findBriefByDate.mockResolvedValue(null);
+    assembleDailyBriefInput.mockRejectedValue(new Error("Could not create profile."));
+
+    const result = await generateDailyBrief({
+      userId: "user-1",
+      email: "secret@example.com",
+      date: "2026-08-25",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("DATA_UNAVAILABLE");
+      expect(result.error).toBe("Failed to assemble market or settings data");
+    }
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[daily-brief] assemble failed",
+      expect.objectContaining({
+        userId: "user-1",
+        briefDate: "2026-08-25",
+        reason: "Could not create profile.",
+      }),
+    );
+    expect(JSON.stringify(result)).not.toMatch(/secret@example.com/);
+    errorSpy.mockRestore();
+  });
 });

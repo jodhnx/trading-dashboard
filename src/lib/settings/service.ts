@@ -1,7 +1,10 @@
 import "server-only";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import type { ProfileRow, UserSettingsRow } from "@/types/database";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
 import {
   BASE_CURRENCIES,
   USER_SETTINGS_DEFAULTS,
@@ -15,6 +18,16 @@ import {
   type SettingsRecord,
 } from "./schema";
 import { PREFERRED_MARKET_OPTIONS, type PreferredMarket } from "@/types/settings";
+
+export type SettingsPersistence = "session" | "admin";
+
+async function resolveSupabase(
+  mode: SettingsPersistence,
+): Promise<SupabaseClient<Database>> {
+  return mode === "admin"
+    ? createAdminSupabaseClient()
+    : await createServerSupabaseClient();
+}
 
 function asBaseCurrency(value: string): BaseCurrency {
   return (BASE_CURRENCIES as readonly string[]).includes(value)
@@ -86,8 +99,9 @@ export function toAccountSettings(
 export async function getOrCreateAccountSettings(
   userId: string,
   email: string | null,
+  options?: { persistence?: SettingsPersistence },
 ): Promise<AccountSettings> {
-  const supabase = await createServerSupabaseClient();
+  const supabase = await resolveSupabase(options?.persistence ?? "session");
 
   let profile = (
     await supabase.from("profiles").select("*").eq("id", userId).maybeSingle()

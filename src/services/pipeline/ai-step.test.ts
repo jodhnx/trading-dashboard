@@ -67,6 +67,22 @@ describe("runPipelineAiForUser", () => {
     findAssetIdBySymbol.mockResolvedValue("asset-nvda");
   });
 
+  it("loads user settings with admin persistence for cron", async () => {
+    getTechnicalSnapshot.mockResolvedValue({
+      snapshot: liveSnapshot({ dataStatus: "UNAVAILABLE" }),
+    });
+
+    await runPipelineAiForUser({
+      userId: "user-1",
+      email: null,
+      client: { isMock: false, completeStructured: vi.fn() } as never,
+    });
+
+    expect(getOrCreateAccountSettings).toHaveBeenCalledWith("user-1", null, {
+      persistence: "admin",
+    });
+  });
+
   it("skips OpenAI when market data is unavailable", async () => {
     getTechnicalSnapshot.mockResolvedValue({
       snapshot: liveSnapshot({ dataStatus: "UNAVAILABLE" }),

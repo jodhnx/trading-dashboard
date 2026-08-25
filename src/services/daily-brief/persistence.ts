@@ -1,15 +1,29 @@
 import "server-only";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { briefFromRow, toBriefInsertRow, type BriefInsert } from "./map-row";
 import type { DailyBriefRecord } from "./types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
+
+export type BriefPersistence = "session" | "admin";
+
+async function resolveSupabase(
+  mode: BriefPersistence,
+): Promise<SupabaseClient<Database>> {
+  return mode === "admin"
+    ? createAdminSupabaseClient()
+    : await createServerSupabaseClient();
+}
 
 export async function findBriefByDate(input: {
   userId: string;
   briefDate: string;
   now?: Date;
+  persistence?: BriefPersistence;
 }): Promise<DailyBriefRecord | null> {
-  const supabase = await createServerSupabaseClient();
+  const supabase = await resolveSupabase(input.persistence ?? "session");
   const { data, error } = await supabase
     .from("daily_briefs")
     .select("*")
@@ -41,9 +55,9 @@ export async function listBriefHistory(input: {
 }
 
 export async function persistBrief(
-  input: BriefInsert,
+  input: BriefInsert & { persistence?: BriefPersistence },
 ): Promise<DailyBriefRecord | null> {
-  const supabase = await createServerSupabaseClient();
+  const supabase = await resolveSupabase(input.persistence ?? "session");
   const row = toBriefInsertRow(input);
   const inserted = await supabase
     .from("daily_briefs")

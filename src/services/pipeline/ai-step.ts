@@ -52,7 +52,9 @@ export async function runPipelineAiForUser(input: {
 
   let settings;
   try {
-    settings = await getOrCreateAccountSettings(input.userId, input.email);
+    settings = await getOrCreateAccountSettings(input.userId, input.email, {
+      persistence: "admin",
+    });
   } catch {
     counts.skipped = MARKET_WATCHLIST.length;
     return counts;

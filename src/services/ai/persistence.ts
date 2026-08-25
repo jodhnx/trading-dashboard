@@ -54,9 +54,11 @@ export async function listOwnAnalyses(input: {
   userId: string;
   symbol: string;
   limit: number;
+  persistence?: "session" | "admin";
 }): Promise<TradingAnalysisRecord[]> {
-  const supabase = await createServerSupabaseClient();
-  const assetId = await findAssetIdBySymbol(input.symbol);
+  const mode = input.persistence ?? "session";
+  const supabase = await resolveSupabase(mode);
+  const assetId = await findAssetIdBySymbol(input.symbol, mode);
   if (!assetId) {
     return [];
   }
