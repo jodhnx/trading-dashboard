@@ -1,6 +1,14 @@
 import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
+import {
+  ACTIVE_CONFIRMATION_RULE,
+  LEGACY_CONFIRMATION_RULE,
+  evaluateSetupConfirmation,
+  macdNegative,
+  macdPositive,
+  momentumBearish,
+  momentumBullish,
+} from "@/engine/trading/confirmation";
 import { emaBearish, emaBullish } from "@/engine/trading/score";
-import { hasRequiredTechnicalData } from "@/engine/trading/validation";
 import type { TradingSetup } from "@/engine/trading/types";
 
 export const SIGNAL_BLOCKER_CODES = [
@@ -8,6 +16,7 @@ export const SIGNAL_BLOCKER_CODES = [
   "ATR_MISSING",
   "TREND_NOT_DIRECTIONAL",
   "MOMENTUM_NOT_ALIGNED",
+  "EMA_MACD_CONFIRMATION_MISSING",
   "EMA_NOT_ALIGNED",
   "MACD_NOT_CONFIRMED",
   "SCORE_BELOW_MIN",
@@ -33,11 +42,10 @@ export type SignalAssetDiagnostic = {
   opportunityScore: number | null;
   tier: string;
   rejectionReason: string | null;
-  /** First condition that prevents VALID LONG or VALID SHORT under current engine rules. */
   firstBlocker: SignalBlockerCode | null;
-  /** Would pass under diagnostic "trend + momentum + (EMA or MACD)" simulation. */
-  altConfirmationWouldPass: boolean;
-  altConfirmationDirection: "LONG" | "SHORT" | "NO_TRADE";
+  confirmationLevel: string;
+  /** Legacy all-four rule (diagnostic comparison only). */
+  legacyAllFourWouldPass: boolean;
 };
 
 export type SignalBlockerAggregate = {
@@ -51,11 +59,15 @@ export type SignalBlockerAggregate = {
 };
 
 export type ConfirmationSimulation = {
-  currentRule: string;
-  alternativeRule: string;
+  currentConfirmationRule: string;
+  activeConfirmationRule: string;
+  alternativeConfirmationRule: string;
   liveOrCachedEvaluated: number;
   currentValid: number;
   alternativeValid: number;
+  strongConfirmationCount: number;
+  confirmedCount: number;
+  watchCount: number;
   note: string;
 };
 
@@ -64,6 +76,7 @@ export type SignalDiagnosticsReport = {
   validSetups: number;
   watchCandidates: number;
   dataSkipped: number;
+  skipReasons: Record<string, number>;
   blockerAggregate: SignalBlockerAggregate;
   rejectionReasons: Record<string, number>;
   confirmationSimulation: ConfirmationSimulation;
@@ -88,98 +101,50 @@ function emaAlignment(
   return "NONE";
 }
 
-function longMomentumOk(snapshot: TechnicalSnapshot): boolean {
-  return snapshot.momentum === "POSITIVE" || snapshot.momentum === "STRONG";
-}
-
-function shortMomentumOk(snapshot: TechnicalSnapshot): boolean {
-  return snapshot.momentum === "NEGATIVE" || snapshot.momentum === "WEAK";
-}
-
-function macdLongOk(snapshot: TechnicalSnapshot): boolean {
-  return snapshot.macdHistogram !== null && snapshot.macdHistogram > 0;
-}
-
-function macdShortOk(snapshot: TechnicalSnapshot): boolean {
-  return snapshot.macdHistogram !== null && snapshot.macdHistogram < 0;
+function legacyAllFourPass(snapshot: TechnicalSnapshot): boolean {
+  const long =
+    snapshot.trend === "BULLISH" &&
+    momentumBullish(snapshot) &&
+    emaBullish(snapshot) &&
+    macdPositive(snapshot);
+  const short =
+    snapshot.trend === "BEARISH" &&
+    momentumBearish(snapshot) &&
+    emaBearish(snapshot) &&
+    macdNegative(snapshot);
+  return (long && !short) || (short && !long);
 }
 
 /**
- * Ordered first-blocker under CURRENT engine rules
- * (trend AND momentum AND EMA AND MACD must all agree).
- * Does not mutate the Trading Engine.
+ * First blocker under ACTIVE confirmation rule (trend + momentum + EMA|MACD).
  */
 export function findFirstDirectionBlocker(
   snapshot: TechnicalSnapshot,
 ): SignalBlockerCode | null {
-  if (!hasRequiredTechnicalData(snapshot)) {
-    if (snapshot.atr14 === null || !(snapshot.atr14 > 0)) {
-      return "ATR_MISSING";
-    }
+  const conf = evaluateSetupConfirmation(snapshot);
+  if (!conf.atrValid) {
+    if (snapshot.atr14 === null || !(snapshot.atr14 > 0)) return "ATR_MISSING";
     return "INSUFFICIENT_DATA";
   }
-
-  const bullishBias =
-    snapshot.trend === "BULLISH" ||
-    (snapshot.trend !== "BEARISH" &&
-      (longMomentumOk(snapshot) || emaBullish(snapshot) || macdLongOk(snapshot)));
-  const bearishBias =
-    snapshot.trend === "BEARISH" ||
-    (snapshot.trend !== "BULLISH" &&
-      (shortMomentumOk(snapshot) || emaBearish(snapshot) || macdShortOk(snapshot)));
-
-  // Prefer evaluating the bias that has more partial confirmation
-  const tryLongFirst =
-    snapshot.trend === "BULLISH" ||
-    (snapshot.trend !== "BEARISH" && bullishBias && !bearishBias) ||
-    (snapshot.trend === "NEUTRAL" &&
-      Number(longMomentumOk(snapshot)) +
-        Number(emaBullish(snapshot)) +
-        Number(macdLongOk(snapshot)) >=
-        Number(shortMomentumOk(snapshot)) +
-          Number(emaBearish(snapshot)) +
-          Number(macdShortOk(snapshot)));
-
-  if (tryLongFirst) {
-    if (snapshot.trend !== "BULLISH") return "TREND_NOT_DIRECTIONAL";
-    if (!longMomentumOk(snapshot)) return "MOMENTUM_NOT_ALIGNED";
-    if (!emaBullish(snapshot)) return "EMA_NOT_ALIGNED";
-    if (!macdLongOk(snapshot)) return "MACD_NOT_CONFIRMED";
+  if (conf.direction === "LONG" || conf.direction === "SHORT") {
     return null;
   }
-
-  if (snapshot.trend !== "BEARISH") return "TREND_NOT_DIRECTIONAL";
-  if (!shortMomentumOk(snapshot)) return "MOMENTUM_NOT_ALIGNED";
-  if (!emaBearish(snapshot)) return "EMA_NOT_ALIGNED";
-  if (!macdShortOk(snapshot)) return "MACD_NOT_CONFIRMED";
-  return null;
-}
-
-/**
- * Diagnostic-only alternative: trend + momentum + (EMA OR MACD).
- * Never used for live trading decisions in this phase.
- */
-export function simulateAltConfirmation(snapshot: TechnicalSnapshot): {
-  direction: "LONG" | "SHORT" | "NO_TRADE";
-  wouldPass: boolean;
-} {
-  if (!hasRequiredTechnicalData(snapshot)) {
-    return { direction: "NO_TRADE", wouldPass: false };
+  if (conf.explain.includes("Trend is not directional")) {
+    return "TREND_NOT_DIRECTIONAL";
   }
-
-  const longOk =
-    snapshot.trend === "BULLISH" &&
-    longMomentumOk(snapshot) &&
-    (emaBullish(snapshot) || macdLongOk(snapshot));
-
-  const shortOk =
-    snapshot.trend === "BEARISH" &&
-    shortMomentumOk(snapshot) &&
-    (emaBearish(snapshot) || macdShortOk(snapshot));
-
-  if (longOk && !shortOk) return { direction: "LONG", wouldPass: true };
-  if (shortOk && !longOk) return { direction: "SHORT", wouldPass: true };
-  return { direction: "NO_TRADE", wouldPass: false };
+  if (
+    conf.explain.startsWith("Missing") &&
+    conf.explain.toLowerCase().includes("momentum")
+  ) {
+    return "MOMENTUM_NOT_ALIGNED";
+  }
+  if (conf.explain.includes("EMA/MACD")) {
+    return "EMA_MACD_CONFIRMATION_MISSING";
+  }
+  if (conf.explain.includes("ATR")) {
+    return "ATR_MISSING";
+  }
+  return "OTHER";
 }
 
 export function buildSignalAssetDiagnostic(input: {
@@ -193,7 +158,8 @@ export function buildSignalAssetDiagnostic(input: {
   rejectionReason: string | null;
 }): SignalAssetDiagnostic {
   const { snapshot } = input;
-  const alt = simulateAltConfirmation(snapshot);
+  const conf =
+    input.setup?.confirmation ?? evaluateSetupConfirmation(snapshot);
   const engineDirection = input.setup?.direction ?? "NO_TRADE";
   const engineStatus = input.setup?.status ?? "SKIPPED";
   const isValid =
@@ -207,23 +173,22 @@ export function buildSignalAssetDiagnostic(input: {
       snapshot.dataStatus === "MOCK"
     ) {
       firstBlocker = "INSUFFICIENT_DATA";
-    } else if (snapshot.dataStatus === "STALE" && input.setup?.rejectReasons.includes("STALE_DATA")) {
+    } else if (
+      snapshot.dataStatus === "STALE" &&
+      input.setup?.rejectReasons.includes("STALE_DATA")
+    ) {
       firstBlocker = "STALE_OR_REJECTED_DATA";
     } else if (input.setup?.rejectReasons.includes("INVALID_RR")) {
       firstBlocker = "INVALID_RR";
     } else if (
-      input.setup?.rejectReasons.includes("NO_TECHNICAL_EDGE") ||
-      engineDirection === "NO_TRADE"
-    ) {
-      firstBlocker = findFirstDirectionBlocker(snapshot);
-    } else if (
       input.setup?.score !== null &&
       input.setup?.score !== undefined &&
-      input.setup.score < 60
+      input.setup.score < 60 &&
+      (engineDirection === "LONG" || engineDirection === "SHORT")
     ) {
       firstBlocker = "SCORE_BELOW_MIN";
     } else {
-      firstBlocker = findFirstDirectionBlocker(snapshot) ?? "OTHER";
+      firstBlocker = findFirstDirectionBlocker(snapshot);
     }
   }
 
@@ -244,8 +209,8 @@ export function buildSignalAssetDiagnostic(input: {
     tier: input.tier,
     rejectionReason: input.rejectionReason ?? firstBlocker,
     firstBlocker,
-    altConfirmationWouldPass: alt.wouldPass,
-    altConfirmationDirection: alt.direction,
+    confirmationLevel: conf.confirmation,
+    legacyAllFourWouldPass: legacyAllFourPass(snapshot),
   };
 }
 
@@ -271,6 +236,7 @@ export function aggregateBlockers(
         agg.momentumBlocked += 1;
         break;
       case "EMA_NOT_ALIGNED":
+      case "EMA_MACD_CONFIRMATION_MISSING":
         agg.emaBlocked += 1;
         break;
       case "MACD_NOT_CONFIRMED":
@@ -303,6 +269,18 @@ export function countRejectionReasons(
   return counts;
 }
 
+export function countSkipReasons(
+  diagnostics: Array<{ tier: string; rejectionReason: string | null }>,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of diagnostics) {
+    if (item.tier !== "DATA_SKIP") continue;
+    const key = item.rejectionReason ?? "data_unavailable";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export function buildWhyNoSetupMessages(input: {
   boardState: string;
   aggregate: SignalBlockerAggregate;
@@ -318,26 +296,24 @@ export function buildWhyNoSetupMessages(input: {
   const parts: string[] = [];
   if (a.trendBlocked > 0) parts.push(`trend (${a.trendBlocked})`);
   if (a.momentumBlocked > 0) parts.push(`momentum (${a.momentumBlocked})`);
-  if (a.emaBlocked > 0) parts.push(`EMA alignment (${a.emaBlocked})`);
+  if (a.emaBlocked > 0) parts.push(`EMA/MACD confirm (${a.emaBlocked})`);
   if (a.macdBlocked > 0) parts.push(`MACD (${a.macdBlocked})`);
   if (a.atrBlocked > 0) parts.push(`ATR (${a.atrBlocked})`);
   if (a.insufficientData > 0) parts.push(`insufficient data (${a.insufficientData})`);
   if (a.other > 0) parts.push(`other (${a.other})`);
 
   if (parts.length > 0) {
-    messages.push(
-      `No VALID LONG/SHORT: first blockers — ${parts.join(", ")}.`,
-    );
+    messages.push(`No VALID LONG/SHORT: first blockers — ${parts.join(", ")}.`);
   } else if (input.boardState === "DATA_INSUFFICIENT") {
     messages.push(
       "No usable LIVE/CACHED technicals — provider/data gap, not a trading call.",
     );
   } else {
-    messages.push("No VALID setups after full indicator confirmation.");
+    messages.push("No VALID setups after confirmation model evaluation.");
   }
 
   messages.push(
-    `Engine requires ${input.confirmationSimulation.currentRule}. Alternative simulation (${input.confirmationSimulation.alternativeRule}) would yield ${input.confirmationSimulation.alternativeValid} vs current ${input.confirmationSimulation.currentValid} valid directions among evaluated LIVE/CACHED assets.`,
+    `Active rule: ${input.confirmationSimulation.activeConfirmationRule} → ${input.confirmationSimulation.currentValid} valid. Legacy all-four would yield ${input.confirmationSimulation.alternativeValid}. Strong ${input.confirmationSimulation.strongConfirmationCount} / confirmed ${input.confirmationSimulation.confirmedCount}.`,
   );
 
   return messages;
@@ -346,12 +322,11 @@ export function buildWhyNoSetupMessages(input: {
 export function buildSignalDiagnosticsReport(input: {
   boardState: string;
   diagnostics: SignalAssetDiagnostic[];
+  candidateDiagnostics: Array<{ tier: string; rejectionReason: string | null }>;
   dataSkipped: number;
 }): SignalDiagnosticsReport {
   const liveOrCached = input.diagnostics.filter(
-    (d) =>
-      d.technicalStatus === "LIVE" ||
-      d.technicalStatus === "CACHED",
+    (d) => d.technicalStatus === "LIVE" || d.technicalStatus === "CACHED",
   );
   const liveDiagnostics = input.diagnostics.filter(
     (d) => d.technicalStatus === "LIVE" || d.quoteStatus === "LIVE",
@@ -363,17 +338,28 @@ export function buildSignalDiagnosticsReport(input: {
   ).length;
   const watchCandidates = input.diagnostics.filter((d) => d.tier === "WATCH").length;
 
+  const strongConfirmationCount = liveOrCached.filter(
+    (d) => d.confirmationLevel === "STRONG",
+  ).length;
+  const confirmedCount = liveOrCached.filter(
+    (d) => d.confirmationLevel === "CONFIRMED",
+  ).length;
+
   const confirmationSimulation: ConfirmationSimulation = {
-    currentRule: "trend + momentum + EMA + MACD (all must agree)",
-    alternativeRule: "trend + momentum + (EMA or MACD)",
+    currentConfirmationRule: LEGACY_CONFIRMATION_RULE,
+    activeConfirmationRule: ACTIVE_CONFIRMATION_RULE,
+    alternativeConfirmationRule: LEGACY_CONFIRMATION_RULE,
     liveOrCachedEvaluated: liveOrCached.length,
     currentValid: liveOrCached.filter(
       (d) =>
         d.engineStatus === "VALID" &&
         (d.engineDirection === "LONG" || d.engineDirection === "SHORT"),
     ).length,
-    alternativeValid: liveOrCached.filter((d) => d.altConfirmationWouldPass).length,
-    note: "Alternative counts are diagnostic only — Trading Engine rules unchanged in Phase 20.",
+    alternativeValid: liveOrCached.filter((d) => d.legacyAllFourWouldPass).length,
+    strongConfirmationCount,
+    confirmedCount,
+    watchCount: liveOrCached.filter((d) => d.confirmationLevel === "WATCH").length,
+    note: "Active engine rule is trend + momentum + (EMA OR MACD). alternativeValid = legacy all-four count.",
   };
 
   const blockerAggregate = aggregateBlockers(
@@ -391,6 +377,7 @@ export function buildSignalDiagnosticsReport(input: {
     validSetups,
     watchCandidates,
     dataSkipped: input.dataSkipped,
+    skipReasons: countSkipReasons(input.candidateDiagnostics),
     blockerAggregate,
     rejectionReasons: countRejectionReasons(liveOrCached),
     confirmationSimulation,

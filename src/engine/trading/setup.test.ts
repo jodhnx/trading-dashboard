@@ -62,7 +62,7 @@ describe("direction rules", () => {
   it("returns NO_TRADE when trend is neutral", () => {
     const result = classifyDirection(liveSnapshot({ trend: "NEUTRAL" }));
     expect(result.direction).toBe("NO_TRADE");
-    expect(result.reasons.join(" ")).toMatch(/Trend is neutral/i);
+    expect(result.reasons.join(" ")).toMatch(/not directional|neutral/i);
   });
 });
 

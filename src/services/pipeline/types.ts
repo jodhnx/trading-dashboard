@@ -61,6 +61,7 @@ export type PipelineResult = {
       validSetups: number;
       watchCandidates: number;
       dataSkipped: number;
+      skipReasons?: Record<string, number>;
       blockerAggregate: {
         trendBlocked: number;
         momentumBlocked: number;
@@ -72,11 +73,17 @@ export type PipelineResult = {
       };
       rejectionReasons: Record<string, number>;
       confirmationSimulation: {
-        currentRule: string;
-        alternativeRule: string;
+        currentConfirmationRule?: string;
+        activeConfirmationRule?: string;
+        alternativeConfirmationRule?: string;
+        currentRule?: string;
+        alternativeRule?: string;
         liveOrCachedEvaluated: number;
         currentValid: number;
         alternativeValid: number;
+        strongConfirmationCount?: number;
+        confirmedCount?: number;
+        watchCount?: number;
         note: string;
       };
       whyNoSetup: string[];

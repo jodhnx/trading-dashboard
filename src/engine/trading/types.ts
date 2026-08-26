@@ -34,6 +34,8 @@ export type TradingRiskSettings = {
   minimumRiskReward: number;
 };
 
+import type { SetupConfirmation } from "./confirmation";
+
 export type TradingSetup = {
   symbol: string;
   timeframe: string;
@@ -55,6 +57,8 @@ export type TradingSetup = {
   dataStatus: string;
   reasons: string[];
   rejectReasons: RejectReason[];
+  /** Phase 21 confirmation snapshot. */
+  confirmation?: SetupConfirmation | null;
   createdAt: Date;
 };
 

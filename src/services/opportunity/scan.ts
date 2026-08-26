@@ -160,8 +160,57 @@ export async function scanDailyOpportunities(input: {
   let available = 0;
   let unavailable = 0;
   let liveOrCached = 0;
+  let providerRateLimited = false;
 
   for (const asset of OPPORTUNITY_UNIVERSE) {
+    if (providerRateLimited) {
+      unavailable += 1;
+      diagnostics.push({
+        symbol: asset.symbol,
+        assetType: asset.assetClass,
+        quoteStatus: "UNAVAILABLE",
+        technicalStatus: "UNAVAILABLE",
+        engineStatus: "SKIPPED",
+        engineDirection: "NO_TRADE",
+        engineScore: null,
+        technicalScore: 0,
+        momentumScore: 0,
+        volumeScore: 0,
+        newsScore: 0,
+        catalystScore: 0,
+        sentimentScore: 0,
+        regimeScore: 0,
+        riskRewardScore: 0,
+        finalOpportunityScore: 0,
+        tier: "DATA_SKIP",
+        rejectionReason: "provider_rate_limit",
+      });
+      signalAssets.push(
+        buildSignalAssetDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus: "UNAVAILABLE",
+          snapshot: emptyTechnicalSnapshot(
+            asset.symbol,
+            DAILY_BRIEF_TIMEFRAME,
+            "UNAVAILABLE",
+            "DATA_UNAVAILABLE",
+          ),
+          setup: null,
+          opportunityScore: null,
+          tier: "DATA_SKIP",
+          rejectionReason: "provider_rate_limit",
+        }),
+      );
+      technicalPool.push({
+        symbol: asset.symbol,
+        trend: "UNKNOWN",
+        volatility: "UNKNOWN",
+        dataStatus: "UNAVAILABLE",
+      });
+      continue;
+    }
+
     const unmapped = providerSkipReason(asset);
     if (unmapped) {
       unavailable += 1;
@@ -364,6 +413,9 @@ export async function scanDailyOpportunities(input: {
           : error instanceof DataUnavailableError
             ? `provider_${error.details?.reason ?? "error"}`
             : "provider_error";
+      if (reason === "provider_rate_limit") {
+        providerRateLimited = true;
+      }
       diagnostics.push({
         symbol: asset.symbol,
         assetType: asset.assetClass,
@@ -524,6 +576,20 @@ export async function scanDailyOpportunities(input: {
       waitingFor,
       newsHeadlines: draft.newsImpact.headlines,
       newsItems: draft.newsImpact.newsItems,
+      confirmation: draft.setup.confirmation
+        ? {
+            direction: draft.setup.confirmation.direction,
+            confirmation: draft.setup.confirmation.confirmation,
+            trend: draft.setup.confirmation.trend,
+            momentum: draft.setup.confirmation.momentum,
+            ema: draft.setup.confirmation.ema,
+            macd: draft.setup.confirmation.macd,
+            regime: marketRegime,
+            atrValid: draft.setup.confirmation.atrValid,
+            rrValid: draft.setup.confirmation.rrValid,
+            explain: draft.setup.confirmation.explain,
+          }
+        : null,
       scannedAt,
     };
   });
@@ -563,6 +629,7 @@ export async function scanDailyOpportunities(input: {
   const signalReport = buildSignalDiagnosticsReport({
     boardState,
     diagnostics: signalAssets,
+    candidateDiagnostics: diagnostics,
     dataSkipped: diagnostics.filter((d) => d.tier === "DATA_SKIP").length,
   });
 
@@ -583,7 +650,8 @@ export async function scanDailyOpportunities(input: {
       macd: d.macd,
       engineDirection: d.engineDirection,
       firstBlocker: d.firstBlocker,
-      altWouldPass: d.altConfirmationWouldPass,
+      confirmationLevel: d.confirmationLevel,
+      legacyAllFour: d.legacyAllFourWouldPass,
     })),
   });
 

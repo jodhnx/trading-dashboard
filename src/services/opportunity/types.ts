@@ -142,6 +142,18 @@ export type RankedOpportunity = {
   waitingFor: string[];
   newsHeadlines: string[];
   newsItems: OpportunityNewsItem[];
+  confirmation: {
+    direction: string;
+    confirmation: string;
+    trend: string;
+    momentum: string;
+    ema: string;
+    macd: string;
+    regime: string;
+    atrValid: boolean;
+    rrValid: boolean | null;
+    explain: string;
+  } | null;
   scannedAt: string;
 };
 

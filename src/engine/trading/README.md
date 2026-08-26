@@ -22,11 +22,20 @@ Weighted sum in `score.ts`. **Not a probability. Not expected return.** Do not s
 
 Minimum score to allow LONG/SHORT: `MIN_SCORE_FOR_TRADE` (60). Below that → `NO_TRADE` / `NO_TECHNICAL_EDGE`.
 
-## Direction
+## Direction (Phase 21 confirmation model)
 
-LONG only if all of: trend BULLISH, momentum POSITIVE or STRONG, price > EMA20 > EMA50 (and EMA50 > EMA200 when present), MACD histogram > 0.
+LONG when:
+- trend is BULLISH
+- momentum is POSITIVE or STRONG
+- **and at least one of:** EMA stack bullish **or** MACD histogram &gt; 0
 
-SHORT is the inverse. Any disagreement → NO_TRADE.
+SHORT is the inverse (BEARISH + NEGATIVE/WEAK + EMA bearish **or** MACD &lt; 0).
+
+If all four of trend, momentum, EMA, and MACD agree → strong confirmation.
+Directional trend without enough confirmation → NO_TRADE / watch (not VALID).
+Neutral trend → never VALID.
+
+Entry / stop / take-profit still come only from `buildRiskLevels` + `sizePosition` inside `buildTradingSetup()` — no second calculator.
 
 ## Entry
 

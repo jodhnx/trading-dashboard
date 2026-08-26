@@ -58,10 +58,19 @@ export function classifySetupType(input: {
   return "PULLBACK";
 }
 
-export function regimeAdjustmentScore(regime: MarketRegime, direction: string): number {
+export function regimeAdjustmentScore(
+  regime: MarketRegime,
+  direction: string,
+  confirmationLevel?: string | null,
+): number {
   if (regime === "UNKNOWN") return 50;
   if (regime === "HIGH_VOLATILITY") return 35;
-  if (regime === "SIDEWAYS") return 45;
+  if (regime === "SIDEWAYS") {
+    // SIDEWAYS does not kill VALID setups — only lowers confidence.
+    if (confirmationLevel === "STRONG") return 55;
+    if (confirmationLevel === "CONFIRMED") return 48;
+    return 40;
+  }
   if (direction === "LONG") {
     if (regime === "BULL" || regime === "RISK_ON") return 90;
     if (regime === "BEAR" || regime === "RISK_OFF") return 25;
@@ -103,7 +112,11 @@ export function computeOpportunityScore(input: {
   const catalystScore = clamp(input.catalystScore);
   const sentimentScore = clamp(input.sentimentScore);
   const marketRegimeScore = clamp(
-    regimeAdjustmentScore(input.marketRegime, input.setup.direction),
+    regimeAdjustmentScore(
+      input.marketRegime,
+      input.setup.direction,
+      input.setup.confirmation?.confirmation,
+    ),
   );
   const rrScore = riskRewardScore(input.setup.riskReward);
 
@@ -223,63 +236,33 @@ export function describeWaitingFor(input: {
     return [];
   }
 
+  const explain = input.setup.confirmation?.explain;
+  if (explain) {
+    return [explain];
+  }
+
   const waiting: string[] = [];
   const { snapshot } = input;
 
   if (snapshot.trend === "NEUTRAL" || snapshot.trend === "UNKNOWN") {
-    waiting.push("Clear BULLISH or BEARISH trend");
-  }
-  if (
-    snapshot.momentum === "NEUTRAL" ||
-    snapshot.momentum === "UNKNOWN" ||
-    (snapshot.trend === "BULLISH" &&
-      snapshot.momentum !== "POSITIVE" &&
-      snapshot.momentum !== "STRONG") ||
-    (snapshot.trend === "BEARISH" &&
-      snapshot.momentum !== "NEGATIVE" &&
-      snapshot.momentum !== "WEAK")
-  ) {
-    waiting.push("Aligned momentum (POSITIVE/STRONG for LONG, NEGATIVE/WEAK for SHORT)");
-  }
-  if (snapshot.macdHistogram === null || snapshot.macdHistogram === 0) {
-    waiting.push("Confirming MACD histogram direction");
+    waiting.push("Trend is not directional");
   } else if (
     snapshot.trend === "BULLISH" &&
-    !(snapshot.macdHistogram > 0)
+    snapshot.momentum !== "POSITIVE" &&
+    snapshot.momentum !== "STRONG"
   ) {
-    waiting.push("Positive MACD histogram");
+    waiting.push("Missing bullish momentum");
   } else if (
     snapshot.trend === "BEARISH" &&
-    !(snapshot.macdHistogram < 0)
+    snapshot.momentum !== "NEGATIVE" &&
+    snapshot.momentum !== "WEAK"
   ) {
-    waiting.push("Negative MACD histogram");
+    waiting.push("Missing bearish momentum");
+  } else {
+    waiting.push("EMA/MACD confirmation missing");
   }
 
-  for (const reason of input.setup.reasons) {
-    if (
-      reason.toLowerCase().includes("ema") ||
-      reason.toLowerCase().includes("signal") ||
-      reason.toLowerCase().includes("disagree")
-    ) {
-      waiting.push(reason);
-    }
-  }
-
-  if (input.setup.rejectReasons.includes("NO_TECHNICAL_EDGE")) {
-    waiting.push("Technical edge (aligned trend, momentum, EMA stack, MACD)");
-  }
-  if (input.setup.rejectReasons.includes("INVALID_RR")) {
-    waiting.push("Risk/reward meeting minimum");
-  }
-  if (input.setup.rejectReasons.includes("STALE_DATA")) {
-    waiting.push("Fresher market data (not STALE)");
-  }
-
-  if (waiting.length === 0) {
-    waiting.push("Aligned trend + momentum + EMA stack + MACD confirmation");
-  }
-
-  return [...new Set(waiting)].slice(0, 4);
+  return waiting.slice(0, 4);
 }
 
 export function snapshotHasTechnicals(snapshot: TechnicalSnapshot): boolean {

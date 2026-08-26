@@ -31,7 +31,7 @@ export async function GET() {
 
   return Response.json({
     ok: true,
-    phase: 20,
+    phase: 21,
     supabase: {
       configured: publicEnv.supabaseConfigured,
     },

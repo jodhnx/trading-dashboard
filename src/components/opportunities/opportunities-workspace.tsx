@@ -28,11 +28,17 @@ type OpportunitiesPayload = {
     other: number;
   } | null;
   confirmationSimulation?: {
-    currentRule: string;
-    alternativeRule: string;
+    currentConfirmationRule?: string;
+    activeConfirmationRule?: string;
+    alternativeConfirmationRule?: string;
+    currentRule?: string;
+    alternativeRule?: string;
     currentValid: number;
     alternativeValid: number;
     liveOrCachedEvaluated: number;
+    strongConfirmationCount?: number;
+    confirmedCount?: number;
+    watchCount?: number;
     note: string;
   } | null;
   message?: string;
@@ -141,11 +147,18 @@ function OpportunityRow({ item }: { item: RankedOpportunity }) {
           <p className="mt-1 text-[11px] text-muted">
             {(item.waitingFor.length > 0
               ? item.waitingFor
-              : ["Aligned trend + momentum + EMA stack + MACD"]
+              : item.confirmation?.explain
+                ? [item.confirmation.explain]
+                : ["Trend is not directional"]
             ).join(" · ")}
           </p>
         </div>
-      ) : null}
+      ) : (
+        <p className="text-xs text-muted">
+          <span className="font-medium text-foreground">Confirmed because: </span>
+          {item.confirmation?.explain ?? item.reasons[0] ?? "Directional trend + momentum + EMA/MACD"}
+        </p>
+      )}
 
       {item.reasons[0] ? (
         <p className="text-xs text-muted">
@@ -324,11 +337,15 @@ export function OpportunitiesWorkspace() {
           ) : null}
           {data.confirmationSimulation ? (
             <p className="mt-1 text-[11px] text-muted">
-              Engine: {data.confirmationSimulation.currentRule} →{" "}
-              {data.confirmationSimulation.currentValid} valid. Diagnostic alt (
-              {data.confirmationSimulation.alternativeRule}) →{" "}
+              Active:{" "}
+              {data.confirmationSimulation.activeConfirmationRule ??
+                data.confirmationSimulation.currentRule}{" "}
+              → {data.confirmationSimulation.currentValid} valid. Legacy all-four →{" "}
               {data.confirmationSimulation.alternativeValid} of{" "}
               {data.confirmationSimulation.liveOrCachedEvaluated} LIVE/CACHED.
+              {typeof data.confirmationSimulation.strongConfirmationCount === "number"
+                ? ` Strong ${data.confirmationSimulation.strongConfirmationCount} / confirmed ${data.confirmationSimulation.confirmedCount ?? 0}.`
+                : ""}
             </p>
           ) : null}
         </Card>

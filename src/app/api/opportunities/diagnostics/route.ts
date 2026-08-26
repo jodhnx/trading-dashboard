@@ -8,6 +8,10 @@ import {
   listStockUniverse,
   OPPORTUNITY_UNIVERSE,
 } from "@/services/opportunity/universe";
+import {
+  ACTIVE_CONFIRMATION_RULE,
+  LEGACY_CONFIRMATION_RULE,
+} from "@/engine/trading/confirmation";
 
 /**
  * Authenticated diagnostics for opportunity signal generation.
@@ -48,6 +52,8 @@ export async function GET(request: Request) {
           ? "NO_TRADE"
           : "DATA_INSUFFICIENT");
 
+  const sim = signal?.confirmationSimulation;
+
   return Response.json({
     ok: true,
     date,
@@ -57,6 +63,7 @@ export async function GET(request: Request) {
     validSetups: signal?.validSetups ?? validStored.length,
     watchCandidates: signal?.watchCandidates ?? watchStored.length,
     dataSkipped: signal?.dataSkipped ?? 0,
+    skipReasons: signal?.skipReasons ?? {},
     rejectionReasons: signal?.rejectionReasons ?? {},
     blockerAggregate: signal?.blockerAggregate ?? {
       trendBlocked: 0,
@@ -67,7 +74,16 @@ export async function GET(request: Request) {
       insufficientData: 0,
       other: 0,
     },
-    confirmationSimulation: signal?.confirmationSimulation ?? null,
+    currentConfirmationRule:
+      sim?.currentConfirmationRule ?? LEGACY_CONFIRMATION_RULE,
+    activeConfirmationRule:
+      sim?.activeConfirmationRule ?? ACTIVE_CONFIRMATION_RULE,
+    alternativeConfirmationRule:
+      sim?.alternativeConfirmationRule ?? LEGACY_CONFIRMATION_RULE,
+    strongConfirmationCount: sim?.strongConfirmationCount ?? 0,
+    confirmedCount: sim?.confirmedCount ?? 0,
+    watchCount: sim?.watchCount ?? watchStored.length,
+    confirmationSimulation: sim ?? null,
     whyNoSetup: signal?.whyNoSetup ?? [
       meta.scanned
         ? "Scan completed but no signal report was stored. Re-run the daily pipeline."
@@ -90,6 +106,6 @@ export async function GET(request: Request) {
       total: OPPORTUNITY_UNIVERSE.length,
     },
     disclaimer:
-      "Diagnostics only. Confirmation simulation does not change Trading Engine rules.",
+      "Diagnostics only. Active confirmation rule is trend + momentum + (EMA OR MACD).",
   });
 }

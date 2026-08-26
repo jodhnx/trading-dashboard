@@ -118,6 +118,7 @@ export async function persistOpportunityScan(input: {
         engineScore: opportunity.engineScore,
         waitingFor: opportunity.waitingFor,
         newsItems: opportunity.newsItems,
+        confirmation: opportunity.confirmation,
       } as unknown as Json,
       asset_class: opportunity.assetClass,
       setup_type: opportunity.setupType,
@@ -153,6 +154,7 @@ function mapOpportunityRow(
     engineScore?: number | null;
     waitingFor?: string[];
     newsItems?: RankedOpportunity["newsItems"];
+    confirmation?: RankedOpportunity["confirmation"];
   };
   return {
     symbol: asset.symbol,
@@ -210,6 +212,7 @@ function mapOpportunityRow(
     waitingFor: breakdown.waitingFor ?? [],
     newsHeadlines: row.news_headlines ?? [],
     newsItems: breakdown.newsItems ?? [],
+    confirmation: breakdown.confirmation ?? null,
     scannedAt: row.created_at,
   };
 }

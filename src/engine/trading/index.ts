@@ -25,6 +25,12 @@ export {
 } from "./validation";
 export { buildTradingSetup, classifyDirection, emptyTradingSetup } from "./setup";
 export type { BuildTradingSetupInput } from "./setup";
+export {
+  evaluateSetupConfirmation,
+  ACTIVE_CONFIRMATION_RULE,
+  LEGACY_CONFIRMATION_RULE,
+} from "./confirmation";
+export type { SetupConfirmation, ConfirmationLevel } from "./confirmation";
 export type {
   TradingSetup,
   TradingRiskSettings,
