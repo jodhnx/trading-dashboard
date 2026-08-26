@@ -88,16 +88,17 @@ export async function runDailyPipeline(input?: {
           diagnosticsSample: opp.summary.diagnostics
             .filter(
               (d) =>
-                d.dataStatus === "LIVE" ||
-                d.dataStatus === "CACHED" ||
-                d.dataStatus === "STALE",
+                d.technicalStatus === "LIVE" ||
+                d.technicalStatus === "CACHED" ||
+                d.technicalStatus === "STALE" ||
+                d.tier === "DATA_SKIP",
             )
-            .slice(0, 10)
+            .slice(0, 12)
             .map((d) => ({
               symbol: d.symbol,
-              dataStatus: d.dataStatus,
-              setupDirection: d.setupDirection,
-              finalScore: d.finalScore,
+              dataStatus: d.technicalStatus,
+              setupDirection: d.engineDirection,
+              finalScore: d.finalOpportunityScore,
               tier: d.tier,
               rejectionReason: d.rejectionReason,
             })),

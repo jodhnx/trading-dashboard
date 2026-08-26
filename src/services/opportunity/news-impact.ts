@@ -1,4 +1,5 @@
 import type { ImpactLevel, NewsCategory, Sentiment } from "@/types/enums";
+import type { OpportunityNewsItem } from "./types";
 
 export type NewsImpactInput = {
   id: string;
@@ -8,6 +9,7 @@ export type NewsImpactInput = {
   sentiment: Sentiment | string;
   publishedAt: Date | string;
   assetSymbols: string[];
+  sourceName?: string | null;
 };
 
 function hoursSince(publishedAt: Date | string, now: Date): number {
@@ -15,6 +17,14 @@ function hoursSince(publishedAt: Date | string, now: Date): number {
     typeof publishedAt === "string" ? Date.parse(publishedAt) : publishedAt.getTime();
   if (!Number.isFinite(ts)) return 999;
   return Math.max(0, (now.getTime() - ts) / 3_600_000);
+}
+
+function toIso(publishedAt: Date | string): string | null {
+  if (typeof publishedAt === "string") {
+    const ts = Date.parse(publishedAt);
+    return Number.isFinite(ts) ? new Date(ts).toISOString() : null;
+  }
+  return Number.isFinite(publishedAt.getTime()) ? publishedAt.toISOString() : null;
 }
 
 function relevanceWeight(relevance: string): number {
@@ -65,7 +75,7 @@ function recencyWeight(hours: number): number {
 
 /**
  * Rank news impact for one symbol: impact × relevance × recency × category.
- * Deterministic — no LLM invention.
+ * Deterministic — no LLM invention. News is optional for technically valid setups.
  */
 export function scoreNewsForSymbol(input: {
   symbol: string;
@@ -76,6 +86,7 @@ export function scoreNewsForSymbol(input: {
   catalystScore: number;
   sentimentScore: number;
   headlines: string[];
+  newsItems: OpportunityNewsItem[];
   ranked: Array<NewsImpactInput & { impactRank: number }>;
 } {
   const now = input.now ?? new Date();
@@ -92,6 +103,7 @@ export function scoreNewsForSymbol(input: {
       catalystScore: 20,
       sentimentScore: 50,
       headlines: [],
+      newsItems: [],
       ranked: [],
     };
   }
@@ -112,18 +124,33 @@ export function scoreNewsForSymbol(input: {
     top.reduce((sum, item) => sum + Math.min(100, item.impactRank), 0) /
     Math.max(1, top.length);
   const catalystScore = Math.max(
-    ...top.map((item) => categoryCatalystBoost(String(item.category)) * recencyWeight(hoursSince(item.publishedAt, now))),
+    ...top.map(
+      (item) =>
+        categoryCatalystBoost(String(item.category)) *
+        recencyWeight(hoursSince(item.publishedAt, now)),
+    ),
     0,
   );
   const sentimentAvg =
     top.reduce((sum, item) => sum + sentimentScore(String(item.sentiment)), 0) /
     Math.max(1, top.length);
 
+  const newsItems: OpportunityNewsItem[] = top.slice(0, 3).map((item) => ({
+    title: item.title,
+    source: item.sourceName ?? null,
+    publishedAt: toIso(item.publishedAt),
+    sentiment: String(item.sentiment),
+    category: String(item.category),
+    relevance: String(item.relevance),
+    impactScore: Math.min(100, Math.round(item.impactRank)),
+  }));
+
   return {
     newsScore: Math.min(100, Math.round(newsScore)),
     catalystScore: Math.min(100, Math.round(catalystScore)),
     sentimentScore: Math.min(100, Math.round(sentimentAvg)),
-    headlines: top.slice(0, 3).map((item) => item.title),
+    headlines: newsItems.map((item) => item.title),
+    newsItems,
     ranked,
   };
 }

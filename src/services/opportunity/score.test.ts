@@ -6,6 +6,7 @@ import { TEST_SETTINGS } from "@/ai/test-fixtures";
 import {
   classifyOpportunityTier,
   computeOpportunityScore,
+  describeWaitingFor,
   riskRewardScore,
 } from "./score";
 import { detectMarketRegime } from "./regime";
@@ -58,6 +59,27 @@ describe("opportunity scoring", () => {
     expect(result.tier).toBe("WATCH");
   });
 
+  it("preserves VALID engine setups as OPPORTUNITY even below composite 65", () => {
+    const setup = longSetup();
+    expect(setup.status).toBe("VALID");
+    expect(
+      classifyOpportunityTier({
+        setup,
+        opportunityScore: 52,
+        dataStatus: "LIVE",
+        hasTechnicals: true,
+      }).tier,
+    ).toBe("OPPORTUNITY");
+    expect(
+      classifyOpportunityTier({
+        setup,
+        opportunityScore: 85,
+        dataStatus: "CACHED",
+        hasTechnicals: true,
+      }).tier,
+    ).toBe("STRONG_OPPORTUNITY");
+  });
+
   it("requires VALID LONG/SHORT + LIVE/CACHED for OPPORTUNITY tier", () => {
     const setup = longSetup();
     expect(setup.status).toBe("VALID");
@@ -82,6 +104,25 @@ describe("opportunity scoring", () => {
   it("treats missing risk/reward as neutral, not zero", () => {
     expect(riskRewardScore(null)).toBe(50);
     expect(riskRewardScore(2)).toBe(80);
+  });
+});
+
+describe("waiting for confirmation", () => {
+  it("lists confirmation gaps for engine NO_TRADE", () => {
+    const snapshot = liveSnapshot({
+      trend: "NEUTRAL",
+      momentum: "NEUTRAL",
+      macdHistogram: 0,
+    });
+    const setup = emptyTradingSetup(snapshot, TEST_SETTINGS, {
+      direction: "NO_TRADE",
+      status: "REJECTED",
+      reasons: ["Trend is neutral", "Signals disagree"],
+      rejectReasons: ["NO_TRADE", "NO_TECHNICAL_EDGE"],
+    });
+    const waiting = describeWaitingFor({ setup, snapshot });
+    expect(waiting.length).toBeGreaterThan(0);
+    expect(waiting.some((item) => /trend/i.test(item))).toBe(true);
   });
 });
 
@@ -132,6 +173,7 @@ describe("news impact", () => {
       ],
     });
     expect(result.headlines[0]).toMatch(/NVIDIA/);
+    expect(result.newsItems[0]?.title).toMatch(/NVIDIA/);
     expect(result.newsScore).toBeGreaterThan(50);
     expect(correlateNewsWithMove({ headline: "ETF news", changePercent: 4.8 })).toBe(
       "ETF news (+4.8%)",

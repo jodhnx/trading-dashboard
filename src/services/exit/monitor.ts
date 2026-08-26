@@ -10,6 +10,10 @@ export type PositionExitAlert = {
   side: PositionSide;
   entryPrice: number;
   currentPrice: number;
+  stopLoss: number | null;
+  takeProfit1: number | null;
+  takeProfit2: number | null;
+  evaluatedAt: string;
   evaluation: ExitEvaluation;
 };
 
@@ -23,8 +27,10 @@ export async function monitorOpenPositions(input: {
     takeProfit: number | null;
     takeProfit2?: number | null;
   }>;
+  now?: Date;
 }): Promise<PositionExitAlert[]> {
   const market = createMarketDataService();
+  const now = input.now ?? new Date();
   const alerts: PositionExitAlert[] = [];
 
   for (const position of input.positions) {
@@ -55,6 +61,10 @@ export async function monitorOpenPositions(input: {
         side: position.side,
         entryPrice: position.averageEntry,
         currentPrice: price,
+        stopLoss: position.stopLoss,
+        takeProfit1: position.takeProfit,
+        takeProfit2: position.takeProfit2 ?? null,
+        evaluatedAt: now.toISOString(),
         evaluation,
       });
     } catch {

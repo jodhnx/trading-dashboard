@@ -111,7 +111,14 @@ export async function persistOpportunityScan(input: {
           : null,
       status: opportunity.tier === "WATCH" ? "NEW" : "VALID",
       opportunity_score: opportunity.scores.opportunityScore,
-      score_breakdown: opportunity.scores as unknown as Json,
+      score_breakdown: {
+        ...opportunity.scores,
+        currentPrice: opportunity.currentPrice,
+        atr14: opportunity.atr14,
+        engineScore: opportunity.engineScore,
+        waitingFor: opportunity.waitingFor,
+        newsItems: opportunity.newsItems,
+      } as unknown as Json,
       asset_class: opportunity.assetClass,
       setup_type: opportunity.setupType,
       holding_horizon: opportunity.holdingHorizon,
@@ -140,7 +147,13 @@ function mapOpportunityRow(
   row: OpportunityRow,
   asset: { symbol: string; name: string },
 ): RankedOpportunity {
-  const breakdown = (row.score_breakdown ?? {}) as RankedOpportunity["scores"];
+  const breakdown = (row.score_breakdown ?? {}) as RankedOpportunity["scores"] & {
+    currentPrice?: number | null;
+    atr14?: number | null;
+    engineScore?: number | null;
+    waitingFor?: string[];
+    newsItems?: RankedOpportunity["newsItems"];
+  };
   return {
     symbol: asset.symbol,
     name: asset.name,
@@ -155,7 +168,9 @@ function mapOpportunityRow(
     setupType: (row.setup_type as RankedOpportunity["setupType"]) ?? "NO_SETUP",
     holdingHorizon:
       (row.holding_horizon as RankedOpportunity["holdingHorizon"]) ?? "UNKNOWN",
-    currentPrice: null,
+    currentPrice: breakdown.currentPrice ?? null,
+    atr14: breakdown.atr14 ?? null,
+    engineScore: breakdown.engineScore ?? null,
     entry: row.entry,
     entryZoneLow: row.entry_zone_low,
     entryZoneHigh: row.entry_zone_high,
@@ -192,7 +207,9 @@ function mapOpportunityRow(
     dataStatus: (row.data_status as RankedOpportunity["dataStatus"]) ?? "UNAVAILABLE",
     reasons: row.reasons ?? [],
     risks: row.risks ?? [],
+    waitingFor: breakdown.waitingFor ?? [],
     newsHeadlines: row.news_headlines ?? [],
+    newsItems: breakdown.newsItems ?? [],
     scannedAt: row.created_at,
   };
 }

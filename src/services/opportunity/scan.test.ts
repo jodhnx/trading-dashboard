@@ -7,6 +7,7 @@ vi.mock("server-only", () => ({}));
 
 const getOrCreateAccountSettings = vi.fn();
 const getTechnicalSnapshot = vi.fn();
+const getQuote = vi.fn();
 const listNews = vi.fn();
 
 vi.mock("@/lib/settings/service", () => ({
@@ -15,7 +16,7 @@ vi.mock("@/lib/settings/service", () => ({
 }));
 
 vi.mock("@/services/market/create-service", () => ({
-  createMarketDataService: () => ({ getTechnicalSnapshot }),
+  createMarketDataService: () => ({ getTechnicalSnapshot, getQuote }),
 }));
 
 vi.mock("@/services/news/create-service", () => ({
@@ -63,6 +64,7 @@ describe("scanDailyOpportunities", () => {
   beforeEach(() => {
     getOrCreateAccountSettings.mockReset();
     getTechnicalSnapshot.mockReset();
+    getQuote.mockReset();
     listNews.mockReset();
     getOrCreateAccountSettings.mockResolvedValue({
       displayName: "Test",
@@ -79,6 +81,7 @@ describe("scanDailyOpportunities", () => {
       preferredMarkets: ["US_EQUITIES"],
       preferredAssets: [],
     });
+    getQuote.mockResolvedValue({ status: "LIVE", quote: { price: 100 } });
     listNews.mockResolvedValue({ items: [] });
   });
 
@@ -101,12 +104,37 @@ describe("scanDailyOpportunities", () => {
     expect(summary.liveOrCached).toBeGreaterThanOrEqual(3);
     expect(summary.marketRegime).toBe("BULL");
     expect(summary.diagnostics.some((d) => d.symbol === "SPY")).toBe(true);
-    expect(summary.diagnostics.find((d) => d.symbol === "SPY")?.dataStatus).toBe(
-      "LIVE",
-    );
-    expect(summary.topStocks.length + summary.watch).toBeGreaterThan(0);
+    expect(
+      summary.diagnostics.find((d) => d.symbol === "SPY")?.technicalStatus,
+    ).toBe("LIVE");
+    expect(summary.topStocks.length).toBeGreaterThan(0);
+    expect(summary.topStocks[0]?.entry).not.toBeNull();
+    expect(summary.topStocks[0]?.stopLoss).not.toBeNull();
+    expect(summary.topStocks[0]?.takeProfit1).not.toBeNull();
     expect(summary.boardState).toBe("OPPORTUNITIES_AVAILABLE");
     expect(summary.noHighConfidence).toBe(false);
+  });
+
+  it("produces valid crypto opportunities with mapped symbols", async () => {
+    getTechnicalSnapshot.mockImplementation(async (symbol: string) => {
+      if (symbol === "BTC" || symbol === "ETH") {
+        return bullishLive(symbol);
+      }
+      return unavailable(symbol);
+    });
+
+    const summary = await scanDailyOpportunities({
+      userId: "user-1",
+      email: null,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+      persistence: "admin",
+    });
+
+    expect(summary.topCrypto.length).toBeGreaterThan(0);
+    expect(summary.topCrypto[0]?.assetClass).toBe("CRYPTO");
+    expect(summary.topCrypto[0]?.direction).toBe("LONG");
+    expect(summary.topCrypto[0]?.entry).not.toBeNull();
+    expect(summary.boardState).toBe("OPPORTUNITIES_AVAILABLE");
   });
 
   it("handles UNKNOWN regime without emptying a LIVE board", async () => {
@@ -145,7 +173,6 @@ describe("scanDailyOpportunities", () => {
     expect(summary.marketRegime).toBe("UNKNOWN");
     expect(summary.liveOrCached).toBe(1);
     expect(summary.diagnostics.some((d) => d.symbol === "AAPL")).toBe(true);
-    // UNKNOWN regime must not masquerade as empty-data failure when LIVE exists
     expect(summary.boardState).not.toBe("DATA_INSUFFICIENT");
   });
 
@@ -166,7 +193,10 @@ describe("scanDailyOpportunities", () => {
     expect(summary.topCrypto).toEqual([]);
     expect(summary.watch).toBe(0);
     expect(summary.boardState).toBe("DATA_INSUFFICIENT");
-    expect(summary.diagnostics).toEqual([]);
+    expect(summary.diagnostics.every((d) => d.tier === "DATA_SKIP")).toBe(true);
+    expect(summary.diagnostics.some((d) => d.rejectionReason === "provider_unmapped")).toBe(
+      true,
+    );
   });
 
   it("keeps valid market opportunities when news ingestion fails", async () => {
@@ -186,11 +216,44 @@ describe("scanDailyOpportunities", () => {
     });
 
     expect(summary.liveOrCached).toBe(2);
-    expect(summary.boardState).not.toBe("DATA_INSUFFICIENT");
+    expect(summary.boardState).toBe("OPPORTUNITIES_AVAILABLE");
     expect(
       summary.all.every((item) =>
         item.risks.some((risk) => risk.includes("NEWS UNAVAILABLE")),
       ),
     ).toBe(true);
+  });
+
+  it("propagates current news metadata without inventing headlines", async () => {
+    listNews.mockResolvedValue({
+      items: [
+        {
+          id: "n1",
+          title: "NVIDIA AI demand rises",
+          category: "COMPANY",
+          relevance: "HIGH",
+          sentiment: "POSITIVE",
+          publishedAt: new Date("2026-08-26T12:00:00.000Z"),
+          assetSymbols: ["NVDA"],
+          sourceName: "Reuters",
+        },
+      ],
+    });
+    getTechnicalSnapshot.mockImplementation(async (symbol: string) => {
+      if (symbol === "NVDA") return bullishLive("NVDA");
+      return unavailable(symbol);
+    });
+
+    const summary = await scanDailyOpportunities({
+      userId: "user-1",
+      email: null,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+      persistence: "admin",
+    });
+
+    const nvda = summary.topStocks.find((item) => item.symbol === "NVDA");
+    expect(nvda?.newsItems[0]?.title).toMatch(/NVIDIA/);
+    expect(nvda?.newsItems[0]?.source).toBe("Reuters");
+    expect(nvda?.newsItems[0]?.publishedAt).toBeTruthy();
   });
 });

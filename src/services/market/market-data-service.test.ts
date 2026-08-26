@@ -17,6 +17,10 @@ describe("symbol mapping", () => {
     expect(toProviderSymbol("NVDA")).toBe("NVDA");
     expect(toProviderSymbol("SPY")).toBe("SPY");
     expect(toProviderSymbol("QQQ")).toBe("QQQ");
+    expect(toProviderSymbol("BNB")).toBe("BNB/USD");
+    expect(toProviderSymbol("DOGE")).toBe("DOGE/USD");
+    expect(toProviderSymbol("GOOGL")).toBe("GOOGL");
+    expect(toProviderSymbol("DIA")).toBe("DIA");
   });
 
   it("never treats Dynex Capital as the USD dollar index", () => {

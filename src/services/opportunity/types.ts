@@ -67,11 +67,24 @@ export const SCAN_BOARD_STATES = [
 ] as const;
 export type ScanBoardState = (typeof SCAN_BOARD_STATES)[number];
 
+export type OpportunityNewsItem = {
+  title: string;
+  source: string | null;
+  publishedAt: string | null;
+  sentiment: string;
+  category: string;
+  relevance: string;
+  impactScore: number;
+};
+
 export type OpportunityCandidateDiagnostic = {
   symbol: string;
-  dataStatus: string;
-  setupDirection: string;
-  setupStatus: string;
+  assetType: string;
+  quoteStatus: string;
+  technicalStatus: string;
+  engineStatus: string;
+  engineDirection: string;
+  engineScore: number | null;
   technicalScore: number;
   momentumScore: number;
   volumeScore: number;
@@ -80,8 +93,8 @@ export type OpportunityCandidateDiagnostic = {
   sentimentScore: number;
   regimeScore: number;
   riskRewardScore: number;
-  finalScore: number;
-  tier: OpportunityTier;
+  finalOpportunityScore: number;
+  tier: OpportunityTier | "DATA_SKIP";
   rejectionReason: string | null;
 };
 
@@ -107,6 +120,8 @@ export type RankedOpportunity = {
   setupType: SetupType;
   holdingHorizon: HoldingHorizon;
   currentPrice: number | null;
+  atr14: number | null;
+  engineScore: number | null;
   entry: number | null;
   entryZoneLow: number | null;
   entryZoneHigh: number | null;
@@ -123,7 +138,9 @@ export type RankedOpportunity = {
   dataStatus: DataStatus | "UNAVAILABLE";
   reasons: string[];
   risks: string[];
+  waitingFor: string[];
   newsHeadlines: string[];
+  newsItems: OpportunityNewsItem[];
   scannedAt: string;
 };
 

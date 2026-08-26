@@ -3,8 +3,6 @@ import type { TradingSetup } from "@/engine/trading/types";
 import type { ScoreBreakdown } from "@/engine/trading/score";
 import { hasRequiredTechnicalData } from "@/engine/trading/validation";
 import {
-  OPPORTUNITY_MIN,
-  OPPORTUNITY_SCORE_WEIGHTS,
   STRONG_OPPORTUNITY_MIN,
   WATCH_MIN,
   type MarketRegime,
@@ -12,6 +10,7 @@ import {
   type OpportunityTier,
   type SetupType,
 } from "./types";
+import { OPPORTUNITY_SCORE_WEIGHTS } from "./types";
 
 function clamp(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -73,7 +72,6 @@ export function regimeAdjustmentScore(regime: MarketRegime, direction: string): 
     if (regime === "BULL" || regime === "RISK_ON") return 25;
     return 50;
   }
-  // NO_TRADE / unknown direction — neutral regime contribution
   return 50;
 }
 
@@ -142,10 +140,10 @@ export type TierClassification = {
 
 /**
  * Tier rules (Trading Engine SCORE_WEIGHTS / ATR / RR unchanged):
- * - UNAVAILABLE / MOCK → NO_TRADE (data insufficient for this asset)
- * - STRONG / OPPORTUNITY require VALID LONG|SHORT + LIVE|CACHED
- * - WATCH allowed for LIVE|CACHED|STALE when technicals exist and score ≥ WATCH_MIN
- *   even if the engine says NO_TRADE (interesting, not actionable)
+ * - Provider UNAVAILABLE / MOCK → not a trading decision (caller skips / DATA path)
+ * - VALID LONG|SHORT + LIVE|CACHED → always OPPORTUNITY or STRONG (engine is source of truth)
+ * - Never demote a VALID setup to WATCH just because composite score < 65
+ * - WATCH = interesting LIVE/CACHED/STALE data without an actionable VALID setup
  * - STALE never becomes STRONG/OPPORTUNITY
  */
 export function classifyOpportunityTier(input: {
@@ -179,19 +177,10 @@ export function classifyOpportunityTier(input: {
     if (input.opportunityScore >= STRONG_OPPORTUNITY_MIN) {
       return { tier: "STRONG_OPPORTUNITY", rejectionReason: null };
     }
-    if (input.opportunityScore >= OPPORTUNITY_MIN) {
-      return { tier: "OPPORTUNITY", rejectionReason: null };
-    }
-    if (input.opportunityScore >= WATCH_MIN) {
-      return { tier: "WATCH", rejectionReason: null };
-    }
-    return {
-      tier: "NO_TRADE",
-      rejectionReason: "score_below_watch_min",
-    };
+    // VALID engine setup is always actionable OPPORTUNITY — score only ranks confidence.
+    return { tier: "OPPORTUNITY", rejectionReason: null };
   }
 
-  // STALE actionable setup → watch only (never treat as fresh opportunity)
   if (actionableSetup && input.dataStatus === "STALE") {
     if (input.opportunityScore >= WATCH_MIN) {
       return { tier: "WATCH", rejectionReason: null };
@@ -202,7 +191,6 @@ export function classifyOpportunityTier(input: {
     };
   }
 
-  // Engine NO_TRADE / REJECTED but usable market data → relative watch list
   if (
     (freshEnough || input.dataStatus === "STALE") &&
     input.opportunityScore >= WATCH_MIN
@@ -223,6 +211,89 @@ export function classifyOpportunityTier(input: {
   };
 }
 
+/** Human-readable confirmation gaps when engine has not produced LONG/SHORT. */
+export function describeWaitingFor(input: {
+  setup: TradingSetup;
+  snapshot: TechnicalSnapshot;
+}): string[] {
+  if (
+    input.setup.status === "VALID" &&
+    (input.setup.direction === "LONG" || input.setup.direction === "SHORT")
+  ) {
+    return [];
+  }
+
+  const waiting: string[] = [];
+  const { snapshot } = input;
+
+  if (snapshot.trend === "NEUTRAL" || snapshot.trend === "UNKNOWN") {
+    waiting.push("Clear BULLISH or BEARISH trend");
+  }
+  if (
+    snapshot.momentum === "NEUTRAL" ||
+    snapshot.momentum === "UNKNOWN" ||
+    (snapshot.trend === "BULLISH" &&
+      snapshot.momentum !== "POSITIVE" &&
+      snapshot.momentum !== "STRONG") ||
+    (snapshot.trend === "BEARISH" &&
+      snapshot.momentum !== "NEGATIVE" &&
+      snapshot.momentum !== "WEAK")
+  ) {
+    waiting.push("Aligned momentum (POSITIVE/STRONG for LONG, NEGATIVE/WEAK for SHORT)");
+  }
+  if (snapshot.macdHistogram === null || snapshot.macdHistogram === 0) {
+    waiting.push("Confirming MACD histogram direction");
+  } else if (
+    snapshot.trend === "BULLISH" &&
+    !(snapshot.macdHistogram > 0)
+  ) {
+    waiting.push("Positive MACD histogram");
+  } else if (
+    snapshot.trend === "BEARISH" &&
+    !(snapshot.macdHistogram < 0)
+  ) {
+    waiting.push("Negative MACD histogram");
+  }
+
+  for (const reason of input.setup.reasons) {
+    if (
+      reason.toLowerCase().includes("ema") ||
+      reason.toLowerCase().includes("signal") ||
+      reason.toLowerCase().includes("disagree")
+    ) {
+      waiting.push(reason);
+    }
+  }
+
+  if (input.setup.rejectReasons.includes("NO_TECHNICAL_EDGE")) {
+    waiting.push("Technical edge (aligned trend, momentum, EMA stack, MACD)");
+  }
+  if (input.setup.rejectReasons.includes("INVALID_RR")) {
+    waiting.push("Risk/reward meeting minimum");
+  }
+  if (input.setup.rejectReasons.includes("STALE_DATA")) {
+    waiting.push("Fresher market data (not STALE)");
+  }
+
+  if (waiting.length === 0) {
+    waiting.push("Aligned trend + momentum + EMA stack + MACD confirmation");
+  }
+
+  return [...new Set(waiting)].slice(0, 4);
+}
+
 export function snapshotHasTechnicals(snapshot: TechnicalSnapshot): boolean {
   return hasRequiredTechnicalData(snapshot);
+}
+
+/** True when rejection is a data/provider failure, not a trading decision. */
+export function isDataQualityRejection(reason: string | null): boolean {
+  if (!reason) return false;
+  return (
+    reason.startsWith("data_") ||
+    reason === "insufficient_technicals" ||
+    reason === "provider_rate_limit" ||
+    reason === "provider_unmapped" ||
+    reason === "provider_error"
+  );
 }

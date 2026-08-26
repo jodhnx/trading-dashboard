@@ -6,6 +6,8 @@ export {
   computeOpportunityScore,
   classifyOpportunityTier,
   classifySetupType,
+  describeWaitingFor,
+  isDataQualityRejection,
 } from "./score";
 export { evaluateExitState } from "@/services/exit/engine";
 export type {

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createMarketDataService } from "@/services/market/create-service";
 import { createNewsService } from "@/services/news/create-service";
+import { DataUnavailableError } from "@/services/market/errors";
 import { getOrCreateAccountSettings } from "@/lib/settings/service";
 import { toTradingRiskSettings } from "@/lib/settings/schema";
 import { buildTradingSetup } from "@/engine/trading/setup";
@@ -9,6 +10,7 @@ import { scoreSetup } from "@/engine/trading/score";
 import type { TradingSetup } from "@/engine/trading/types";
 import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import { DAILY_BRIEF_TIMEFRAME } from "@/services/daily-brief/types";
+import { toProviderSymbol } from "@/services/market/symbols";
 import { OPPORTUNITY_UNIVERSE } from "./universe";
 import { detectMarketRegime } from "./regime";
 import { scoreNewsForSymbol } from "./news-impact";
@@ -16,6 +18,8 @@ import {
   classifyOpportunityTier,
   classifySetupType,
   computeOpportunityScore,
+  describeWaitingFor,
+  isDataQualityRejection,
   snapshotHasTechnicals,
 } from "./score";
 import { deriveEntryPlan } from "./entry";
@@ -57,34 +61,45 @@ type DraftCandidate = {
   technicalBreakdown: ReturnType<typeof scoreSetup>;
   snapshot: TechnicalSnapshot;
   newsImpact: ReturnType<typeof scoreNewsForSymbol>;
+  quoteStatus: string;
 };
 
 function logSafeDiagnostics(diagnostics: OpportunityCandidateDiagnostic[]): void {
   const interesting = diagnostics.filter(
     (item) =>
-      item.dataStatus === "LIVE" ||
-      item.dataStatus === "CACHED" ||
-      item.dataStatus === "STALE",
+      item.technicalStatus === "LIVE" ||
+      item.technicalStatus === "CACHED" ||
+      item.technicalStatus === "STALE" ||
+      item.tier === "DATA_SKIP",
   );
   console.info("[opportunity-scan] candidate summary", {
     counted: diagnostics.length,
     liveOrCached: diagnostics.filter(
-      (d) => d.dataStatus === "LIVE" || d.dataStatus === "CACHED",
+      (d) => d.technicalStatus === "LIVE" || d.technicalStatus === "CACHED",
     ).length,
     actionable: diagnostics.filter(
       (d) => d.tier === "STRONG_OPPORTUNITY" || d.tier === "OPPORTUNITY",
     ).length,
     watch: diagnostics.filter((d) => d.tier === "WATCH").length,
-    sample: interesting.slice(0, 8).map((d) => ({
+    dataSkip: diagnostics.filter((d) => d.tier === "DATA_SKIP").length,
+    sample: interesting.slice(0, 12).map((d) => ({
       symbol: d.symbol,
-      dataStatus: d.dataStatus,
-      setupDirection: d.setupDirection,
-      setupStatus: d.setupStatus,
-      finalScore: d.finalScore,
+      quoteStatus: d.quoteStatus,
+      technicalStatus: d.technicalStatus,
+      engineDirection: d.engineDirection,
+      engineStatus: d.engineStatus,
+      finalOpportunityScore: d.finalOpportunityScore,
       tier: d.tier,
       rejectionReason: d.rejectionReason,
     })),
   });
+}
+
+function providerSkipReason(asset: (typeof OPPORTUNITY_UNIVERSE)[number]): string | null {
+  if (asset.providerSymbol === null || toProviderSymbol(asset.symbol) === null) {
+    return "provider_unmapped";
+  }
+  return null;
 }
 
 export async function scanDailyOpportunities(input: {
@@ -109,9 +124,10 @@ export async function scanDailyOpportunities(input: {
     sentiment: string;
     publishedAt: Date;
     assetSymbols: string[];
+    sourceName: string | null;
   }> = [];
   try {
-    const news = await createNewsService().listNews({ limit: 40 });
+    const news = await createNewsService().listNews({ limit: 60 });
     newsItems = news.items.map((item) => ({
       id: item.id,
       title: item.title,
@@ -120,6 +136,7 @@ export async function scanDailyOpportunities(input: {
       sentiment: item.sentiment,
       publishedAt: item.publishedAt,
       assetSymbols: item.assetSymbols,
+      sourceName: item.sourceName ?? null,
     }));
   } catch {
     newsItems = [];
@@ -132,11 +149,57 @@ export async function scanDailyOpportunities(input: {
     dataStatus: string;
   }> = [];
   const drafts: DraftCandidate[] = [];
+  const diagnostics: OpportunityCandidateDiagnostic[] = [];
   let available = 0;
   let unavailable = 0;
   let liveOrCached = 0;
 
   for (const asset of OPPORTUNITY_UNIVERSE) {
+    const unmapped = providerSkipReason(asset);
+    if (unmapped) {
+      unavailable += 1;
+      diagnostics.push({
+        symbol: asset.symbol,
+        assetType: asset.assetClass,
+        quoteStatus: "UNAVAILABLE",
+        technicalStatus: "UNAVAILABLE",
+        engineStatus: "SKIPPED",
+        engineDirection: "NO_TRADE",
+        engineScore: null,
+        technicalScore: 0,
+        momentumScore: 0,
+        volumeScore: 0,
+        newsScore: 0,
+        catalystScore: 0,
+        sentimentScore: 0,
+        regimeScore: 0,
+        riskRewardScore: 0,
+        finalOpportunityScore: 0,
+        tier: "DATA_SKIP",
+        rejectionReason: unmapped,
+      });
+      technicalPool.push({
+        symbol: asset.symbol,
+        trend: "UNKNOWN",
+        volatility: "UNKNOWN",
+        dataStatus: "UNAVAILABLE",
+      });
+      continue;
+    }
+
+    let quoteStatus = "UNAVAILABLE";
+    try {
+      const quote = await market.getQuote(asset.symbol);
+      quoteStatus = quote.status;
+    } catch (error) {
+      if (
+        error instanceof DataUnavailableError &&
+        error.details?.reason === "rate_limit"
+      ) {
+        quoteStatus = "UNAVAILABLE";
+      }
+    }
+
     try {
       const technical = await market.getTechnicalSnapshot(
         asset.symbol,
@@ -154,6 +217,29 @@ export async function scanDailyOpportunities(input: {
         technical.snapshot.dataStatus === "MOCK"
       ) {
         unavailable += 1;
+        diagnostics.push({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus,
+          technicalStatus: technical.snapshot.dataStatus,
+          engineStatus: "SKIPPED",
+          engineDirection: "NO_TRADE",
+          engineScore: null,
+          technicalScore: 0,
+          momentumScore: 0,
+          volumeScore: 0,
+          newsScore: 0,
+          catalystScore: 0,
+          sentimentScore: 0,
+          regimeScore: 0,
+          riskRewardScore: 0,
+          finalOpportunityScore: 0,
+          tier: "DATA_SKIP",
+          rejectionReason:
+            technical.snapshot.dataStatus === "MOCK"
+              ? "data_mock"
+              : "data_unavailable",
+        });
         continue;
       }
       available += 1;
@@ -165,6 +251,26 @@ export async function scanDailyOpportunities(input: {
       }
 
       if (!isTradeableClass(asset.assetClass)) {
+        diagnostics.push({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus,
+          technicalStatus: technical.snapshot.dataStatus,
+          engineStatus: "SKIPPED",
+          engineDirection: "NO_TRADE",
+          engineScore: null,
+          technicalScore: 0,
+          momentumScore: 0,
+          volumeScore: 0,
+          newsScore: 0,
+          catalystScore: 0,
+          sentimentScore: 0,
+          regimeScore: 0,
+          riskRewardScore: 0,
+          finalOpportunityScore: 0,
+          tier: "DATA_SKIP",
+          rejectionReason: "non_tradeable_asset_class",
+        });
         continue;
       }
 
@@ -173,7 +279,6 @@ export async function scanDailyOpportunities(input: {
         settings: risk,
         now,
       });
-      // Best directional technical score even when engine says NO_TRADE
       const scoreLong = scoreSetup(technical.snapshot, "LONG");
       const scoreShort = scoreSetup(technical.snapshot, "SHORT");
       const technicalBreakdown =
@@ -197,9 +302,37 @@ export async function scanDailyOpportunities(input: {
         technicalBreakdown,
         snapshot: technical.snapshot,
         newsImpact,
+        quoteStatus,
       });
-    } catch {
+    } catch (error) {
       unavailable += 1;
+      const reason =
+        error instanceof DataUnavailableError &&
+        error.details?.reason === "rate_limit"
+          ? "provider_rate_limit"
+          : error instanceof DataUnavailableError
+            ? `provider_${error.details?.reason ?? "error"}`
+            : "provider_error";
+      diagnostics.push({
+        symbol: asset.symbol,
+        assetType: asset.assetClass,
+        quoteStatus,
+        technicalStatus: "UNAVAILABLE",
+        engineStatus: "SKIPPED",
+        engineDirection: "NO_TRADE",
+        engineScore: null,
+        technicalScore: 0,
+        momentumScore: 0,
+        volumeScore: 0,
+        newsScore: 0,
+        catalystScore: 0,
+        sentimentScore: 0,
+        regimeScore: 0,
+        riskRewardScore: 0,
+        finalOpportunityScore: 0,
+        tier: "DATA_SKIP",
+        rejectionReason: reason,
+      });
       technicalPool.push({
         symbol: asset.symbol,
         trend: "UNKNOWN",
@@ -210,7 +343,6 @@ export async function scanDailyOpportunities(input: {
   }
 
   const marketRegime: MarketRegime = detectMarketRegime(technicalPool);
-  const diagnostics: OpportunityCandidateDiagnostic[] = [];
 
   const finalized: RankedOpportunity[] = drafts.map((draft) => {
     const scores = computeOpportunityScore({
@@ -236,6 +368,10 @@ export async function scanDailyOpportunities(input: {
       setup: draft.setup,
       newsScore: draft.newsImpact.newsScore,
     });
+    const waitingFor = describeWaitingFor({
+      setup: draft.setup,
+      snapshot: draft.snapshot,
+    });
 
     const risks: string[] = [...draft.setup.rejectReasons];
     if (draft.snapshot.dataStatus === "STALE") {
@@ -245,14 +381,17 @@ export async function scanDailyOpportunities(input: {
       risks.push("NEWS UNAVAILABLE — news score is neutral baseline");
     }
     if (draft.setup.direction === "NO_TRADE" && classified.tier === "WATCH") {
-      risks.push("Engine NO_TRADE — watch only, no forced entry levels");
+      risks.push("Waiting for confirmation — no forced entry levels");
     }
 
     diagnostics.push({
       symbol: draft.asset.symbol,
-      dataStatus: draft.snapshot.dataStatus,
-      setupDirection: draft.setup.direction,
-      setupStatus: draft.setup.status,
+      assetType: draft.asset.assetClass,
+      quoteStatus: draft.quoteStatus,
+      technicalStatus: draft.snapshot.dataStatus,
+      engineStatus: draft.setup.status,
+      engineDirection: draft.setup.direction,
+      engineScore: draft.setup.score,
       technicalScore: scores.technicalScore,
       momentumScore: scores.momentumScore,
       volumeScore: scores.volumeScore,
@@ -261,7 +400,7 @@ export async function scanDailyOpportunities(input: {
       sentimentScore: scores.sentimentScore,
       regimeScore: scores.marketRegimeScore,
       riskRewardScore: scores.riskRewardScore,
-      finalScore: scores.opportunityScore,
+      finalOpportunityScore: scores.opportunityScore,
       tier: classified.tier,
       rejectionReason: classified.rejectionReason,
     });
@@ -279,6 +418,8 @@ export async function scanDailyOpportunities(input: {
       setupType,
       holdingHorizon: entryPlan.holdingHorizon,
       currentPrice: draft.snapshot.currentPrice,
+      atr14: draft.snapshot.atr14,
+      engineScore: draft.setup.score,
       entry: hasActionableLevels ? draft.setup.entry : null,
       entryZoneLow: hasActionableLevels ? entryPlan.entryZoneLow : null,
       entryZoneHigh: hasActionableLevels ? entryPlan.entryZoneHigh : null,
@@ -299,7 +440,9 @@ export async function scanDailyOpportunities(input: {
         ...draft.newsImpact.headlines.slice(0, 1).map((h) => `News: ${h}`),
       ],
       risks,
+      waitingFor,
       newsHeadlines: draft.newsImpact.headlines,
+      newsItems: draft.newsImpact.newsItems,
       scannedAt,
     };
   });
@@ -327,6 +470,15 @@ export async function scanDailyOpportunities(input: {
     watch,
   });
 
+  // Provider/data failures must not inflate genuine NO_TRADE trading decisions
+  const noTrade = finalized.filter(
+    (i) =>
+      i.tier === "NO_TRADE" &&
+      !isDataQualityRejection(
+        diagnostics.find((d) => d.symbol === i.symbol)?.rejectionReason ?? null,
+      ),
+  ).length;
+
   return {
     scanned: OPPORTUNITY_UNIVERSE.length,
     available,
@@ -335,7 +487,7 @@ export async function scanDailyOpportunities(input: {
     strong,
     opportunities,
     watch,
-    noTrade: finalized.filter((i) => i.tier === "NO_TRADE").length,
+    noTrade,
     topStocks: actionable
       .filter((item) => item.assetClass !== "CRYPTO")
       .slice(0, TOP_STOCK_LIMIT),

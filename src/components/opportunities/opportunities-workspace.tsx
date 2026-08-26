@@ -21,6 +21,11 @@ type OpportunitiesPayload = {
   disclaimer: string;
 };
 
+function formatPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value >= 1000 ? value.toFixed(0) : value.toFixed(2);
+}
+
 function ScoreBreakdown({ item }: { item: RankedOpportunity }) {
   const s = item.scores;
   return (
@@ -38,58 +43,134 @@ function ScoreBreakdown({ item }: { item: RankedOpportunity }) {
 }
 
 function OpportunityRow({ item }: { item: RankedOpportunity }) {
+  const actionable =
+    item.tier === "STRONG_OPPORTUNITY" || item.tier === "OPPORTUNITY";
+  const confidence = item.scores.opportunityScore;
+
   return (
     <Card className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href={`/market/${encodeURIComponent(item.symbol)}`}
             className="font-mono text-base font-semibold hover:text-accent"
           >
             {item.symbol}
           </Link>
-          <Badge tone={item.direction === "LONG" ? "positive" : item.direction === "SHORT" ? "negative" : "neutral"}>
+          <Badge
+            tone={
+              item.direction === "LONG"
+                ? "positive"
+                : item.direction === "SHORT"
+                  ? "negative"
+                  : "neutral"
+            }
+          >
             {item.direction}
           </Badge>
           <Badge tone={item.tier === "STRONG_OPPORTUNITY" ? "positive" : "neutral"}>
             {item.tier}
           </Badge>
           <Badge tone="neutral">{item.setupType}</Badge>
+          <Badge tone="neutral">{item.assetClass}</Badge>
         </div>
-        <p className="font-mono text-sm">
-          Score {item.scores.opportunityScore.toFixed(1)}
-        </p>
+        <div className="text-right">
+          <p className="font-mono text-sm">Score {confidence.toFixed(1)}</p>
+          <p className="text-[10px] text-muted">
+            Confidence {confidence.toFixed(0)} · Engine {item.engineScore?.toFixed(0) ?? "—"}
+          </p>
+        </div>
       </div>
-      <ScoreBreakdown item={item} />
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
+        <div>
+          <p className="text-[10px] uppercase text-muted">Price</p>
+          <p className="font-mono">{formatPrice(item.currentPrice)}</p>
+        </div>
         <div>
           <p className="text-[10px] uppercase text-muted">Entry zone</p>
           <p className="font-mono">
-            {item.entryZoneLow?.toFixed(2) ?? "—"} – {item.entryZoneHigh?.toFixed(2) ?? "—"}
+            {formatPrice(item.entryZoneLow)} – {formatPrice(item.entryZoneHigh)}
           </p>
         </div>
         <div>
           <p className="text-[10px] uppercase text-muted">Stop / Invalidation</p>
-          <p className="font-mono">{item.stopLoss?.toFixed(2) ?? "—"}</p>
+          <p className="font-mono">{formatPrice(item.stopLoss ?? item.invalidation)}</p>
         </div>
         <div>
           <p className="text-[10px] uppercase text-muted">TP1 / TP2</p>
           <p className="font-mono">
-            {item.takeProfit1?.toFixed(2) ?? "—"} / {item.takeProfit2?.toFixed(2) ?? "—"}
+            {formatPrice(item.takeProfit1)} / {formatPrice(item.takeProfit2)}
           </p>
         </div>
         <div>
-          <p className="text-[10px] uppercase text-muted">R:R / Horizon</p>
+          <p className="text-[10px] uppercase text-muted">R:R / ATR</p>
           <p className="font-mono">
-            {item.riskReward?.toFixed(2) ?? "—"} · {item.holdingHorizon}
+            {item.riskReward?.toFixed(2) ?? "—"} · {formatPrice(item.atr14)}
           </p>
         </div>
+        <div>
+          <p className="text-[10px] uppercase text-muted">Horizon</p>
+          <p className="font-mono">{item.holdingHorizon}</p>
+        </div>
       </div>
-      {item.reasons[0] ? (
-        <p className="text-xs text-muted">{item.reasons[0]}</p>
+
+      <ScoreBreakdown item={item} />
+
+      {!actionable ? (
+        <div className="rounded-md border border-border/60 bg-background/40 px-3 py-2">
+          <p className="text-xs font-medium">Waiting for confirmation</p>
+          <p className="mt-1 text-[11px] text-muted">
+            {(item.waitingFor.length > 0
+              ? item.waitingFor
+              : ["Aligned trend + momentum + EMA stack + MACD"]
+            ).join(" · ")}
+          </p>
+        </div>
       ) : null}
+
+      {item.reasons[0] ? (
+        <p className="text-xs text-muted">
+          <span className="font-medium text-foreground">Why ranked: </span>
+          {item.reasons.slice(0, 2).join(" · ")}
+        </p>
+      ) : null}
+
+      {actionable && item.invalidation !== null ? (
+        <p className="text-xs text-muted">
+          <span className="font-medium text-foreground">Invalidation: </span>
+          Price through {formatPrice(item.invalidation)}
+        </p>
+      ) : null}
+
+      {item.newsItems.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-[10px] uppercase text-muted">News</p>
+          {item.newsItems.slice(0, 2).map((news) => (
+            <p key={`${news.title}-${news.publishedAt}`} className="text-[11px] text-muted">
+              {news.title}
+              {news.source ? ` · ${news.source}` : ""}
+              {news.publishedAt
+                ? ` · ${new Date(news.publishedAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+              {` · ${news.sentiment} · ${news.category} · impact ${news.impactScore}`}
+            </p>
+          ))}
+        </div>
+      ) : item.newsHeadlines[0] ? (
+        <p className="text-[11px] text-muted">News: {item.newsHeadlines[0]}</p>
+      ) : (
+        <p className="text-[11px] text-muted">No symbol-linked news in the latest ingest.</p>
+      )}
+
       <p className="text-[10px] text-muted">
-        Data {item.dataStatus} · Engine levels only — not an order.
+        Data {item.dataStatus} · Regime {item.marketRegime} · Scanned{" "}
+        {new Date(item.scannedAt).toLocaleString()} · Engine levels only — not an order.
       </p>
     </Card>
   );
@@ -215,11 +296,11 @@ export function OpportunitiesWorkspace() {
         </Card>
       ) : null}
 
-      {data.boardState === "OPPORTUNITIES_AVAILABLE" && data.noHighConfidence === false ? (
+      {data.boardState === "OPPORTUNITIES_AVAILABLE" ? (
         <Card>
           <p className="text-sm font-semibold">OPPORTUNITIES AVAILABLE</p>
           <p className="mt-1 text-xs text-muted">
-            Ranked candidates from the latest daily scan. Informational only — not orders.
+            Ranked actionable candidates from the latest daily scan. Informational only — not orders.
           </p>
         </Card>
       ) : null}
@@ -231,9 +312,10 @@ export function OpportunitiesWorkspace() {
           </h3>
           <div className="grid gap-2">
             {data.exitAlerts.map((alert) => (
-              <Card key={alert.positionId} className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+              <Card key={alert.positionId} className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono font-semibold">{alert.symbol}</span>
+                  <Badge tone="neutral">{alert.side}</Badge>
                   <Badge
                     tone={
                       alert.evaluation.urgency === "URGENT_EXIT"
@@ -247,11 +329,37 @@ export function OpportunitiesWorkspace() {
                   </Badge>
                   <Badge tone="neutral">{alert.evaluation.urgency}</Badge>
                 </div>
+                <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div>
+                    <p className="text-[10px] uppercase text-muted">Action</p>
+                    <p className="font-medium">{alert.evaluation.state}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted">Price / Entry</p>
+                    <p className="font-mono">
+                      {formatPrice(alert.currentPrice)} / {formatPrice(alert.entryPrice)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted">Stop / TP1 / TP2</p>
+                    <p className="font-mono">
+                      {formatPrice(alert.stopLoss)} / {formatPrice(alert.takeProfit1)} /{" "}
+                      {formatPrice(alert.takeProfit2)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted">P/L</p>
+                    <p className="font-mono">
+                      {alert.evaluation.unrealizedPnLPercent !== null
+                        ? `${alert.evaluation.unrealizedPnLPercent.toFixed(2)}%`
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
                 <p className="text-xs text-muted">
-                  {alert.evaluation.reasons[0]}
-                  {alert.evaluation.unrealizedPnLPercent !== null
-                    ? ` · P/L ${alert.evaluation.unrealizedPnLPercent.toFixed(2)}%`
-                    : ""}
+                  {alert.evaluation.reasons[0] ?? "No reason"}
+                  {" · "}
+                  {new Date(alert.evaluatedAt).toLocaleString()}
                 </p>
               </Card>
             ))}
@@ -264,7 +372,9 @@ export function OpportunitiesWorkspace() {
         empty={
           data.boardState === "DATA_INSUFFICIENT"
             ? "DATA INSUFFICIENT — no stored stock opportunities for this day"
-            : "NO HIGH-CONFIDENCE STOCK SETUPS"
+            : data.boardState === "WATCH_ONLY"
+              ? "No VALID stock setups yet — see Watch for confirmation gaps"
+              : "NO actionable stock setups today"
         }
         items={data.topStocks}
       />
@@ -273,7 +383,9 @@ export function OpportunitiesWorkspace() {
         empty={
           data.boardState === "DATA_INSUFFICIENT"
             ? "DATA INSUFFICIENT — no stored crypto opportunities for this day"
-            : "NO HIGH-CONFIDENCE CRYPTO SETUPS"
+            : data.boardState === "WATCH_ONLY"
+              ? "No VALID crypto setups yet — see Watch for confirmation gaps"
+              : "NO actionable crypto setups today"
         }
         items={data.topCrypto}
       />
