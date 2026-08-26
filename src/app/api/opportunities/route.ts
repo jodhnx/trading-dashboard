@@ -65,16 +65,14 @@ export async function GET(request: Request) {
     watch: watch.length,
   });
 
-  const pipelineMeta = fromRows
-    ? null
-    : await loadPipelineOpportunityBoardMeta(date);
+  const pipelineMeta = await loadPipelineOpportunityBoardMeta(date);
 
   const boardState: ScanBoardState =
     fromRows ??
-    pipelineMeta?.boardState ??
-    (pipelineMeta?.scanned && (pipelineMeta.liveOrCached ?? 0) === 0
+    pipelineMeta.boardState ??
+    (pipelineMeta.scanned && (pipelineMeta.liveOrCached ?? 0) === 0
       ? "DATA_INSUFFICIENT"
-      : pipelineMeta?.scanned
+      : pipelineMeta.scanned
         ? "NO_TRADE"
         : "DATA_INSUFFICIENT");
 
@@ -126,13 +124,17 @@ export async function GET(request: Request) {
     boardState,
     marketRegime:
       opportunities[0]?.marketRegime ??
-      pipelineMeta?.marketRegime ??
+      pipelineMeta.marketRegime ??
       "UNKNOWN",
     noHighConfidence: topStocks.length === 0 && topCrypto.length === 0,
     topStocks,
     topCrypto,
     watch,
     exitAlerts,
+    whyNoSetup: pipelineMeta.signalReport?.whyNoSetup ?? [],
+    blockerAggregate: pipelineMeta.signalReport?.blockerAggregate ?? null,
+    confirmationSimulation:
+      pipelineMeta.signalReport?.confirmationSimulation ?? null,
     message: boardMessage(boardState),
     disclaimer:
       "Opportunities are informational only. They do not guarantee profit and are not executed orders.",

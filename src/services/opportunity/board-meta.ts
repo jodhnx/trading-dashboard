@@ -3,6 +3,7 @@ import "server-only";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import type { ScanBoardState } from "./types";
 import { SCAN_BOARD_STATES } from "./types";
+import type { SignalDiagnosticsReport } from "./signal-diagnostics";
 
 function asBoardState(value: unknown): ScanBoardState | null {
   return typeof value === "string" &&
@@ -21,6 +22,7 @@ export async function loadPipelineOpportunityBoardMeta(briefDate: string): Promi
   marketRegime: string | null;
   liveOrCached: number | null;
   scanned: boolean;
+  signalReport: SignalDiagnosticsReport | null;
 }> {
   try {
     const admin = createAdminSupabaseClient();
@@ -39,6 +41,7 @@ export async function loadPipelineOpportunityBoardMeta(briefDate: string): Promi
         marketRegime: null,
         liveOrCached: null,
         scanned: false,
+        signalReport: null,
       };
     }
 
@@ -52,8 +55,15 @@ export async function loadPipelineOpportunityBoardMeta(briefDate: string): Promi
         marketRegime: null,
         liveOrCached: null,
         scanned: false,
+        signalReport: null,
       };
     }
+
+    const signalReport =
+      opportunities.signalReport &&
+      typeof opportunities.signalReport === "object"
+        ? (opportunities.signalReport as SignalDiagnosticsReport)
+        : null;
 
     return {
       boardState: asBoardState(opportunities.boardState),
@@ -66,6 +76,7 @@ export async function loadPipelineOpportunityBoardMeta(briefDate: string): Promi
           ? opportunities.liveOrCached
           : null,
       scanned: true,
+      signalReport,
     };
   } catch {
     return {
@@ -73,6 +84,7 @@ export async function loadPipelineOpportunityBoardMeta(briefDate: string): Promi
       marketRegime: null,
       liveOrCached: null,
       scanned: false,
+      signalReport: null,
     };
   }
 }

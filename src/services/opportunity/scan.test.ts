@@ -113,6 +113,10 @@ describe("scanDailyOpportunities", () => {
     expect(summary.topStocks[0]?.takeProfit1).not.toBeNull();
     expect(summary.boardState).toBe("OPPORTUNITIES_AVAILABLE");
     expect(summary.noHighConfidence).toBe(false);
+    expect(summary.signalReport.validSetups).toBeGreaterThan(0);
+    expect(summary.signalReport.liveDiagnostics.some((d) => d.symbol === "SPY")).toBe(
+      true,
+    );
   });
 
   it("produces valid crypto opportunities with mapped symbols", async () => {
@@ -194,6 +198,8 @@ describe("scanDailyOpportunities", () => {
     expect(summary.watch).toBe(0);
     expect(summary.boardState).toBe("DATA_INSUFFICIENT");
     expect(summary.diagnostics.every((d) => d.tier === "DATA_SKIP")).toBe(true);
+    expect(summary.signalReport.dataSkipped).toBeGreaterThan(0);
+    expect(summary.signalReport.validSetups).toBe(0);
     expect(summary.diagnostics.some((d) => d.rejectionReason === "provider_unmapped")).toBe(
       true,
     );

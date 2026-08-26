@@ -1,0 +1,95 @@
+import { getAuthUser } from "@/lib/auth/session";
+import { utcBriefDate } from "@/services/daily-brief/date";
+import { loadPipelineOpportunityBoardMeta } from "@/services/opportunity/board-meta";
+import { listStoredOpportunities } from "@/services/opportunity/persistence";
+import { toProviderSymbol } from "@/services/market/symbols";
+import {
+  listCryptoUniverse,
+  listStockUniverse,
+  OPPORTUNITY_UNIVERSE,
+} from "@/services/opportunity/universe";
+
+/**
+ * Authenticated diagnostics for opportunity signal generation.
+ * Never returns secrets, API keys, or user PII beyond the caller's own scan context.
+ */
+export async function GET(request: Request) {
+  const user = await getAuthUser();
+  if (!user) {
+    return Response.json(
+      { error: "Unauthorized", code: "UNAUTHORIZED" },
+      { status: 401 },
+    );
+  }
+
+  const url = new URL(request.url);
+  const date = url.searchParams.get("date") ?? utcBriefDate();
+  const meta = await loadPipelineOpportunityBoardMeta(date);
+  const stored = await listStoredOpportunities({
+    userId: user.id,
+    briefDate: date,
+    limit: 40,
+  });
+
+  const validStored = stored.filter(
+    (item) =>
+      item.tier === "STRONG_OPPORTUNITY" || item.tier === "OPPORTUNITY",
+  );
+  const watchStored = stored.filter((item) => item.tier === "WATCH");
+
+  const signal = meta.signalReport;
+  const boardState =
+    meta.boardState ??
+    (validStored.length > 0
+      ? "OPPORTUNITIES_AVAILABLE"
+      : watchStored.length > 0
+        ? "WATCH_ONLY"
+        : meta.scanned
+          ? "NO_TRADE"
+          : "DATA_INSUFFICIENT");
+
+  return Response.json({
+    ok: true,
+    date,
+    boardState,
+    marketRegime: meta.marketRegime ?? stored[0]?.marketRegime ?? "UNKNOWN",
+    liveAssets: signal?.liveAssets ?? 0,
+    validSetups: signal?.validSetups ?? validStored.length,
+    watchCandidates: signal?.watchCandidates ?? watchStored.length,
+    dataSkipped: signal?.dataSkipped ?? 0,
+    rejectionReasons: signal?.rejectionReasons ?? {},
+    blockerAggregate: signal?.blockerAggregate ?? {
+      trendBlocked: 0,
+      momentumBlocked: 0,
+      emaBlocked: 0,
+      macdBlocked: 0,
+      atrBlocked: 0,
+      insufficientData: 0,
+      other: 0,
+    },
+    confirmationSimulation: signal?.confirmationSimulation ?? null,
+    whyNoSetup: signal?.whyNoSetup ?? [
+      meta.scanned
+        ? "Scan completed but no signal report was stored. Re-run the daily pipeline."
+        : "No completed pipeline scan for this UTC day.",
+    ],
+    liveDiagnostics: signal?.liveDiagnostics ?? [],
+    universe: {
+      stocks: listStockUniverse()
+        .filter((a) => a.assetClass === "STOCK" || a.assetClass === "ETF")
+        .map((a) => ({
+          symbol: a.symbol,
+          providerSymbol: toProviderSymbol(a.symbol),
+          mapped: toProviderSymbol(a.symbol) !== null,
+        })),
+      crypto: listCryptoUniverse().map((a) => ({
+        symbol: a.symbol,
+        providerSymbol: toProviderSymbol(a.symbol),
+        mapped: toProviderSymbol(a.symbol) !== null,
+      })),
+      total: OPPORTUNITY_UNIVERSE.length,
+    },
+    disclaimer:
+      "Diagnostics only. Confirmation simulation does not change Trading Engine rules.",
+  });
+}

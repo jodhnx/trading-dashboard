@@ -56,6 +56,32 @@ export type PipelineResult = {
     marketRegime: string;
     boardState: string;
     liveOrCached: number;
+    signalReport?: {
+      liveAssets: number;
+      validSetups: number;
+      watchCandidates: number;
+      dataSkipped: number;
+      blockerAggregate: {
+        trendBlocked: number;
+        momentumBlocked: number;
+        emaBlocked: number;
+        macdBlocked: number;
+        atrBlocked: number;
+        insufficientData: number;
+        other: number;
+      };
+      rejectionReasons: Record<string, number>;
+      confirmationSimulation: {
+        currentRule: string;
+        alternativeRule: string;
+        liveOrCachedEvaluated: number;
+        currentValid: number;
+        alternativeValid: number;
+        note: string;
+      };
+      whyNoSetup: string[];
+      liveDiagnostics: Array<Record<string, unknown>>;
+    };
     diagnosticsSample: Array<{
       symbol: string;
       dataStatus: string;

@@ -9,6 +9,7 @@ import { buildTradingSetup } from "@/engine/trading/setup";
 import { scoreSetup } from "@/engine/trading/score";
 import type { TradingSetup } from "@/engine/trading/types";
 import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
+import { emptyTechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import { DAILY_BRIEF_TIMEFRAME } from "@/services/daily-brief/types";
 import { toProviderSymbol } from "@/services/market/symbols";
 import { OPPORTUNITY_UNIVERSE } from "./universe";
@@ -23,6 +24,11 @@ import {
   snapshotHasTechnicals,
 } from "./score";
 import { deriveEntryPlan } from "./entry";
+import {
+  buildSignalAssetDiagnostic,
+  buildSignalDiagnosticsReport,
+  type SignalAssetDiagnostic,
+} from "./signal-diagnostics";
 import {
   TOP_CRYPTO_LIMIT,
   TOP_STOCK_LIMIT,
@@ -150,6 +156,7 @@ export async function scanDailyOpportunities(input: {
   }> = [];
   const drafts: DraftCandidate[] = [];
   const diagnostics: OpportunityCandidateDiagnostic[] = [];
+  const signalAssets: SignalAssetDiagnostic[] = [];
   let available = 0;
   let unavailable = 0;
   let liveOrCached = 0;
@@ -178,6 +185,23 @@ export async function scanDailyOpportunities(input: {
         tier: "DATA_SKIP",
         rejectionReason: unmapped,
       });
+      signalAssets.push(
+        buildSignalAssetDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus: "UNAVAILABLE",
+          snapshot: emptyTechnicalSnapshot(
+            asset.symbol,
+            DAILY_BRIEF_TIMEFRAME,
+            "UNAVAILABLE",
+            "DATA_UNAVAILABLE",
+          ),
+          setup: null,
+          opportunityScore: null,
+          tier: "DATA_SKIP",
+          rejectionReason: unmapped,
+        }),
+      );
       technicalPool.push({
         symbol: asset.symbol,
         trend: "UNKNOWN",
@@ -240,6 +264,21 @@ export async function scanDailyOpportunities(input: {
               ? "data_mock"
               : "data_unavailable",
         });
+        signalAssets.push(
+          buildSignalAssetDiagnostic({
+            symbol: asset.symbol,
+            assetType: asset.assetClass,
+            quoteStatus,
+            snapshot: technical.snapshot,
+            setup: null,
+            opportunityScore: null,
+            tier: "DATA_SKIP",
+            rejectionReason:
+              technical.snapshot.dataStatus === "MOCK"
+                ? "data_mock"
+                : "data_unavailable",
+          }),
+        );
         continue;
       }
       available += 1;
@@ -271,6 +310,18 @@ export async function scanDailyOpportunities(input: {
           tier: "DATA_SKIP",
           rejectionReason: "non_tradeable_asset_class",
         });
+        signalAssets.push(
+          buildSignalAssetDiagnostic({
+            symbol: asset.symbol,
+            assetType: asset.assetClass,
+            quoteStatus,
+            snapshot: technical.snapshot,
+            setup: null,
+            opportunityScore: null,
+            tier: "DATA_SKIP",
+            rejectionReason: "non_tradeable_asset_class",
+          }),
+        );
         continue;
       }
 
@@ -333,6 +384,23 @@ export async function scanDailyOpportunities(input: {
         tier: "DATA_SKIP",
         rejectionReason: reason,
       });
+      signalAssets.push(
+        buildSignalAssetDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus,
+          snapshot: emptyTechnicalSnapshot(
+            asset.symbol,
+            DAILY_BRIEF_TIMEFRAME,
+            "UNAVAILABLE",
+            "DATA_UNAVAILABLE",
+          ),
+          setup: null,
+          opportunityScore: null,
+          tier: "DATA_SKIP",
+          rejectionReason: reason,
+        }),
+      );
       technicalPool.push({
         symbol: asset.symbol,
         trend: "UNKNOWN",
@@ -404,6 +472,19 @@ export async function scanDailyOpportunities(input: {
       tier: classified.tier,
       rejectionReason: classified.rejectionReason,
     });
+
+    signalAssets.push(
+      buildSignalAssetDiagnostic({
+        symbol: draft.asset.symbol,
+        assetType: draft.asset.assetClass,
+        quoteStatus: draft.quoteStatus,
+        snapshot: draft.snapshot,
+        setup: draft.setup,
+        opportunityScore: scores.opportunityScore,
+        tier: classified.tier,
+        rejectionReason: classified.rejectionReason,
+      }),
+    );
 
     const hasActionableLevels =
       draft.setup.status === "VALID" &&
@@ -479,6 +560,33 @@ export async function scanDailyOpportunities(input: {
       ),
   ).length;
 
+  const signalReport = buildSignalDiagnosticsReport({
+    boardState,
+    diagnostics: signalAssets,
+    dataSkipped: diagnostics.filter((d) => d.tier === "DATA_SKIP").length,
+  });
+
+  console.info("[opportunity-scan] signal blockers", {
+    boardState,
+    liveAssets: signalReport.liveAssets,
+    validSetups: signalReport.validSetups,
+    blockerAggregate: signalReport.blockerAggregate,
+    confirmationSimulation: {
+      currentValid: signalReport.confirmationSimulation.currentValid,
+      alternativeValid: signalReport.confirmationSimulation.alternativeValid,
+    },
+    liveSample: signalReport.liveDiagnostics.slice(0, 8).map((d) => ({
+      symbol: d.symbol,
+      trend: d.trend,
+      momentum: d.momentum,
+      emaAlignment: d.emaAlignment,
+      macd: d.macd,
+      engineDirection: d.engineDirection,
+      firstBlocker: d.firstBlocker,
+      altWouldPass: d.altConfirmationWouldPass,
+    })),
+  });
+
   return {
     scanned: OPPORTUNITY_UNIVERSE.length,
     available,
@@ -501,5 +609,6 @@ export async function scanDailyOpportunities(input: {
     noHighConfidence: actionable.length === 0,
     boardState,
     diagnostics,
+    signalReport,
   };
 }

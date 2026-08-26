@@ -1,5 +1,6 @@
 import type { DataStatus } from "@/services/market/provider";
 import type { SetupDirection } from "@/engine/trading/types";
+import type { SignalDiagnosticsReport } from "./signal-diagnostics";
 
 export const OPPORTUNITY_TIERS = [
   "STRONG_OPPORTUNITY",
@@ -160,4 +161,5 @@ export type OpportunityScanSummary = {
   noHighConfidence: boolean;
   boardState: ScanBoardState;
   diagnostics: OpportunityCandidateDiagnostic[];
+  signalReport: SignalDiagnosticsReport;
 };

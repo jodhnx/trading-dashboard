@@ -10,6 +10,10 @@ export {
   isDataQualityRejection,
 } from "./score";
 export { evaluateExitState } from "@/services/exit/engine";
+export {
+  findFirstDirectionBlocker,
+  buildSignalDiagnosticsReport,
+} from "./signal-diagnostics";
 export type {
   RankedOpportunity,
   OpportunityScanSummary,

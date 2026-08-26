@@ -17,6 +17,24 @@ type OpportunitiesPayload = {
   topCrypto: RankedOpportunity[];
   watch: RankedOpportunity[];
   exitAlerts: PositionExitAlert[];
+  whyNoSetup?: string[];
+  blockerAggregate?: {
+    trendBlocked: number;
+    momentumBlocked: number;
+    emaBlocked: number;
+    macdBlocked: number;
+    atrBlocked: number;
+    insufficientData: number;
+    other: number;
+  } | null;
+  confirmationSimulation?: {
+    currentRule: string;
+    alternativeRule: string;
+    currentValid: number;
+    alternativeValid: number;
+    liveOrCachedEvaluated: number;
+    note: string;
+  } | null;
   message?: string;
   disclaimer: string;
 };
@@ -276,16 +294,6 @@ export function OpportunitiesWorkspace() {
         </Card>
       ) : null}
 
-      {data.boardState === "NO_TRADE" ? (
-        <Card>
-          <p className="text-sm font-semibold">NO TRADE</p>
-          <p className="mt-1 text-xs text-muted">
-            {data.message ??
-              "Market data was analyzed; evidence did not clear the opportunity bar today."}
-          </p>
-        </Card>
-      ) : null}
-
       {data.boardState === "WATCH_ONLY" ? (
         <Card>
           <p className="text-sm font-semibold">WATCH ONLY</p>
@@ -293,6 +301,58 @@ export function OpportunitiesWorkspace() {
             {data.message ??
               "Interesting candidates exist, but none cleared a full VALID LONG/SHORT opportunity."}
           </p>
+          {data.whyNoSetup && data.whyNoSetup.length > 0 ? (
+            <div className="mt-3 space-y-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                Why no setup exists today
+              </p>
+              {data.whyNoSetup.map((line) => (
+                <p key={line} className="text-xs text-muted">
+                  {line}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {data.blockerAggregate ? (
+            <p className="mt-2 text-[11px] text-muted">
+              First blockers — trend {data.blockerAggregate.trendBlocked}, momentum{" "}
+              {data.blockerAggregate.momentumBlocked}, EMA {data.blockerAggregate.emaBlocked},
+              MACD {data.blockerAggregate.macdBlocked}, ATR {data.blockerAggregate.atrBlocked},
+              data {data.blockerAggregate.insufficientData}, other{" "}
+              {data.blockerAggregate.other}
+            </p>
+          ) : null}
+          {data.confirmationSimulation ? (
+            <p className="mt-1 text-[11px] text-muted">
+              Engine: {data.confirmationSimulation.currentRule} →{" "}
+              {data.confirmationSimulation.currentValid} valid. Diagnostic alt (
+              {data.confirmationSimulation.alternativeRule}) →{" "}
+              {data.confirmationSimulation.alternativeValid} of{" "}
+              {data.confirmationSimulation.liveOrCachedEvaluated} LIVE/CACHED.
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {data.boardState === "NO_TRADE" ? (
+        <Card>
+          <p className="text-sm font-semibold">NO TRADE</p>
+          <p className="mt-1 text-xs text-muted">
+            {data.message ??
+              "Market data was analyzed; evidence did not clear the opportunity bar today."}
+          </p>
+          {data.whyNoSetup && data.whyNoSetup.length > 0 ? (
+            <div className="mt-3 space-y-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                Why no setup exists today
+              </p>
+              {data.whyNoSetup.map((line) => (
+                <p key={line} className="text-xs text-muted">
+                  {line}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </Card>
       ) : null}
 
