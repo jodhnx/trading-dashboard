@@ -1,6 +1,7 @@
 -- Phase 25: broad market symbol universe catalog
+-- Idempotent: safe when table/indexes/policy already exist from partial apply.
 
-CREATE TABLE IF NOT EXISTS symbol_universe (
+CREATE TABLE IF NOT EXISTS public.symbol_universe (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   symbol text NOT NULL UNIQUE,
   provider_symbol text,
@@ -21,13 +22,22 @@ CREATE TABLE IF NOT EXISTS symbol_universe (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_symbol_universe_tradable ON symbol_universe (tradable, asset_type);
-CREATE INDEX IF NOT EXISTS idx_symbol_universe_provider ON symbol_universe (provider_mapped) WHERE provider_mapped = true;
+CREATE INDEX IF NOT EXISTS idx_symbol_universe_tradable
+  ON public.symbol_universe (tradable, asset_type);
 
-ALTER TABLE symbol_universe ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_symbol_universe_provider
+  ON public.symbol_universe (provider_mapped)
+  WHERE provider_mapped = true;
 
--- Read-only for authenticated users; writes via service role only
-CREATE POLICY symbol_universe_select ON symbol_universe
-  FOR SELECT TO authenticated USING (true);
+ALTER TABLE public.symbol_universe ENABLE ROW LEVEL SECURITY;
 
-COMMENT ON TABLE symbol_universe IS 'Phase 25 broad market scan universe — normalized symbol catalog';
+-- Read-only for authenticated users; writes via service role only.
+DROP POLICY IF EXISTS symbol_universe_select ON public.symbol_universe;
+
+CREATE POLICY symbol_universe_select
+ON public.symbol_universe
+FOR SELECT
+TO authenticated
+USING (true);
+
+COMMENT ON TABLE public.symbol_universe IS 'Phase 25 broad market scan universe — normalized symbol catalog';
