@@ -2,6 +2,7 @@ import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import type { Timeframe } from "@/types/enums";
 import type { MarketDataService } from "@/services/market/market-data-service";
 import type { MtfFrameStatus, MtfAlignment } from "./types";
+import { emaBearish, emaBullish } from "@/engine/trading/score";
 
 export const MTF_REGIME_TIMEFRAME: Timeframe = "1day";
 export const MTF_SETUP_TIMEFRAME: Timeframe = "4h";
@@ -9,72 +10,90 @@ export const MTF_ENTRY_TIMEFRAME: Timeframe = "1h";
 /** Cap MTF enrichment to protect provider rate limits during universe scans. */
 export const MTF_ENRICH_LIMIT = 6;
 
-export function emptyMtfAlignment(daily: TechnicalSnapshot): MtfAlignment {
-  return {
-    daily: {
-      timeframe: daily.timeframe || MTF_REGIME_TIMEFRAME,
-      available:
-        daily.dataStatus !== "UNAVAILABLE" && daily.dataStatus !== "MOCK",
-      dataStatus: daily.dataStatus,
-      trend: daily.trend,
-      momentum: daily.momentum,
-      reason: null,
-    },
-    setup: {
-      timeframe: MTF_SETUP_TIMEFRAME,
-      available: false,
-      dataStatus: "UNAVAILABLE",
-      trend: "UNKNOWN",
-      momentum: "UNKNOWN",
-      reason: "not_fetched",
-    },
-    entry: {
-      timeframe: MTF_ENTRY_TIMEFRAME,
-      available: false,
-      dataStatus: "UNAVAILABLE",
-      trend: "UNKNOWN",
-      momentum: "UNKNOWN",
-      reason: "not_fetched",
-    },
-    aligned: false,
-    score: 50,
-    notes: [
-      "Higher-timeframe daily regime only — setup/entry frames not enriched yet",
-    ],
-  };
+function emaLabel(snapshot: TechnicalSnapshot): string {
+  if (emaBullish(snapshot)) return "BULLISH";
+  if (emaBearish(snapshot)) return "BEARISH";
+  return "NONE";
 }
 
-function frameStatus(
+function macdLabel(snapshot: TechnicalSnapshot): string {
+  if (snapshot.macdHistogram === null) return "MISSING";
+  if (snapshot.macdHistogram > 0) return "POSITIVE";
+  if (snapshot.macdHistogram < 0) return "NEGATIVE";
+  return "FLAT";
+}
+
+export function snapshotToMtfFrame(
   snapshot: TechnicalSnapshot | null,
-  errorReason: string | null,
+  fallbackTimeframe: string,
+  reason: string | null,
 ): MtfFrameStatus {
-  if (errorReason === "provider_rate_limit") {
+  if (!snapshot) {
     return {
-      timeframe: "unknown",
+      timeframe: fallbackTimeframe,
       available: false,
       dataStatus: "UNAVAILABLE",
       trend: "UNKNOWN",
       momentum: "UNKNOWN",
-      reason: "provider_rate_limit",
+      ema20: null,
+      ema50: null,
+      ema200: null,
+      macd: null,
+      macdSignal: null,
+      macdHistogram: null,
+      atr14: null,
+      timestamp: null,
+      reason: reason ?? "DATA_UNAVAILABLE",
     };
   }
-  if (!snapshot || snapshot.dataStatus === "UNAVAILABLE" || snapshot.dataStatus === "MOCK") {
+
+  if (snapshot.dataStatus === "UNAVAILABLE" || snapshot.dataStatus === "MOCK") {
     return {
-      timeframe: snapshot?.timeframe ?? "unknown",
+      timeframe: snapshot.timeframe || fallbackTimeframe,
       available: false,
-      dataStatus: snapshot?.dataStatus ?? "UNAVAILABLE",
-      trend: snapshot?.trend ?? "UNKNOWN",
-      momentum: snapshot?.momentum ?? "UNKNOWN",
-      reason: errorReason ?? "data_unavailable",
+      dataStatus: snapshot.dataStatus,
+      trend: snapshot.trend,
+      momentum: snapshot.momentum,
+      ema20: snapshot.ema20,
+      ema50: snapshot.ema50,
+      ema200: snapshot.ema200,
+      macd: snapshot.macd,
+      macdSignal: snapshot.macdSignal,
+      macdHistogram: snapshot.macdHistogram,
+      atr14: snapshot.atr14,
+      timestamp: snapshot.asOf ? snapshot.asOf.toISOString() : null,
+      reason: reason ?? "DATA_UNAVAILABLE",
     };
   }
+
   return {
-    timeframe: snapshot.timeframe,
+    timeframe: snapshot.timeframe || fallbackTimeframe,
     available: true,
     dataStatus: snapshot.dataStatus,
     trend: snapshot.trend,
     momentum: snapshot.momentum,
+    ema20: snapshot.ema20,
+    ema50: snapshot.ema50,
+    ema200: snapshot.ema200,
+    macd: snapshot.macd,
+    macdSignal: snapshot.macdSignal,
+    macdHistogram: snapshot.macdHistogram,
+    atr14: snapshot.atr14,
+    timestamp: snapshot.asOf ? snapshot.asOf.toISOString() : null,
     reason: null,
+  };
+}
+
+export function emptyMtfAlignment(daily: TechnicalSnapshot): MtfAlignment {
+  return {
+    daily: snapshotToMtfFrame(daily, MTF_REGIME_TIMEFRAME, null),
+    setup: snapshotToMtfFrame(null, MTF_SETUP_TIMEFRAME, "DATA_UNAVAILABLE"),
+    entry: snapshotToMtfFrame(null, MTF_ENTRY_TIMEFRAME, "DATA_UNAVAILABLE"),
+    aligned: false,
+    score: 50,
+    notes: [
+      "Higher-timeframe daily regime only — setup/entry frames unavailable (not fabricated)",
+    ],
   };
 }
 
@@ -85,23 +104,41 @@ function trendsAgree(a: string, b: string): boolean {
 }
 
 /**
- * Score multi-timeframe alignment 0–100 from available frames only.
- * Missing frames do not invent agreement — they reduce confidence neutrally.
+ * Evaluate multi-timeframe alignment from available frames only.
+ * Missing frames are never invented as bullish/bearish.
  */
-export function scoreMtfAlignment(input: {
+export function evaluateMultiTimeframeAlignment(input: {
   daily: TechnicalSnapshot;
   setup: TechnicalSnapshot | null;
   entry: TechnicalSnapshot | null;
-}): { score: number; alignment: MtfAlignment } {
-  const daily = frameStatus(input.daily, null);
-  const setupTf = frameStatus(input.setup, input.setup ? null : "timeframe_unavailable");
-  const entryTf = frameStatus(input.entry, input.entry ? null : "timeframe_unavailable");
+}): MtfAlignment {
+  const daily = snapshotToMtfFrame(input.daily, MTF_REGIME_TIMEFRAME, null);
+  const setupTf = snapshotToMtfFrame(
+    input.setup,
+    MTF_SETUP_TIMEFRAME,
+    input.setup ? null : "DATA_UNAVAILABLE",
+  );
+  const entryTf = snapshotToMtfFrame(
+    input.entry,
+    MTF_ENTRY_TIMEFRAME,
+    input.entry ? null : "DATA_UNAVAILABLE",
+  );
 
   let score = 50;
   let aligned = false;
   const notes: string[] = [];
 
-  if (setupTf.available) {
+  // Annotate available frames with EMA/MACD labels in notes (values are on the frame).
+  if (daily.available) {
+    notes.push(
+      `Daily EMA ${emaLabel(input.daily)} · MACD ${macdLabel(input.daily)}`,
+    );
+  }
+
+  if (setupTf.available && input.setup) {
+    notes.push(
+      `4H EMA ${emaLabel(input.setup)} · MACD ${macdLabel(input.setup)}`,
+    );
     if (trendsAgree(daily.trend, setupTf.trend)) {
       score += 25;
       aligned = true;
@@ -114,10 +151,15 @@ export function scoreMtfAlignment(input: {
       notes.push("Daily and setup timeframe trends disagree");
     }
   } else {
-    notes.push(`Setup timeframe (${MTF_SETUP_TIMEFRAME}) unavailable — using daily only`);
+    notes.push(
+      `Setup timeframe (${MTF_SETUP_TIMEFRAME}) unavailable — not fabricated`,
+    );
   }
 
-  if (entryTf.available) {
+  if (entryTf.available && input.entry) {
+    notes.push(
+      `1H EMA ${emaLabel(input.entry)} · MACD ${macdLabel(input.entry)}`,
+    );
     const referenceTrend = setupTf.available ? setupTf.trend : daily.trend;
     if (trendsAgree(referenceTrend, entryTf.trend)) {
       score += 15;
@@ -130,20 +172,53 @@ export function scoreMtfAlignment(input: {
       notes.push("Entry timeframe conflicts with higher timeframe");
     }
   } else {
-    notes.push(`Entry timeframe (${MTF_ENTRY_TIMEFRAME}) unavailable`);
+    notes.push(
+      `Entry timeframe (${MTF_ENTRY_TIMEFRAME}) unavailable — not fabricated`,
+    );
   }
 
+  // All three directional and agreeing → high alignment
+  if (
+    daily.available &&
+    setupTf.available &&
+    entryTf.available &&
+    trendsAgree(daily.trend, setupTf.trend) &&
+    trendsAgree(setupTf.trend, entryTf.trend) &&
+    (daily.trend === "BULLISH" || daily.trend === "BEARISH")
+  ) {
+    aligned = true;
+    score = Math.max(score, 90);
+    notes.push("1D / 4H / 1H trends fully aligned");
+  }
+
+  const clamped = Math.min(100, Math.max(0, score));
   return {
-    score: Math.min(100, Math.max(0, score)),
-    alignment: {
-      daily,
-      setup: setupTf,
-      entry: entryTf,
-      aligned,
-      score: Math.min(100, Math.max(0, score)),
-      notes,
-    },
+    daily,
+    setup: setupTf,
+    entry: entryTf,
+    aligned,
+    score: clamped,
+    notes,
   };
+}
+
+/** Score 0–100 used in opportunity weighting (multiTimeFrame: 10). */
+export function calculateMultiTimeframeScore(input: {
+  daily: TechnicalSnapshot;
+  setup: TechnicalSnapshot | null;
+  entry: TechnicalSnapshot | null;
+}): { score: number; alignment: MtfAlignment } {
+  const alignment = evaluateMultiTimeframeAlignment(input);
+  return { score: alignment.score, alignment };
+}
+
+/** @deprecated use calculateMultiTimeframeScore */
+export function scoreMtfAlignment(input: {
+  daily: TechnicalSnapshot;
+  setup: TechnicalSnapshot | null;
+  entry: TechnicalSnapshot | null;
+}): { score: number; alignment: MtfAlignment } {
+  return calculateMultiTimeframeScore(input);
 }
 
 /**

@@ -30,15 +30,15 @@ import {
   type SignalAssetDiagnostic,
 } from "./signal-diagnostics";
 import {
-  classifySignalQuality,
   freshnessConfidenceFactor,
   toDataFreshness,
 } from "./quality";
+import { evaluateTradeEligibility } from "./trade-status";
 import {
   emptyMtfAlignment,
   loadOptionalMtfSnapshots,
   MTF_ENRICH_LIMIT,
-  scoreMtfAlignment,
+  calculateMultiTimeframeScore,
 } from "./mtf";
 import {
   compareOpportunityRank,
@@ -105,6 +105,7 @@ function dataSkipDiagnostic(input: {
     sentimentScore: 0,
     regimeScore: 0,
     riskRewardScore: 0,
+    multiTimeFrameScore: 0,
     multiTimeframeScore: 0,
     finalOpportunityScore: 0,
     tier: "DATA_SKIP",
@@ -243,7 +244,7 @@ function finalizeCandidate(input: {
     catalystScore: draft.newsImpact.catalystScore,
     sentimentScore: draft.newsImpact.sentimentScore,
     marketRegime: input.marketRegime,
-    multiTimeframeScore: draft.mtf.score,
+    multiTimeFrameScore: draft.mtf.score,
     freshnessFactor: freshnessConfidenceFactor(dataFreshness),
   });
   const classified = classifyOpportunityTier({
@@ -252,12 +253,12 @@ function finalizeCandidate(input: {
     dataStatus: draft.snapshot.dataStatus,
     hasTechnicals: snapshotHasTechnicals(draft.snapshot),
   });
-  const quality = classifySignalQuality({
+  const eligibility = evaluateTradeEligibility({
     setup: draft.setup,
     snapshot: draft.snapshot,
     dataFreshness,
-    mtfAligned: draft.mtf.aligned,
   });
+  const quality = eligibility.quality;
   const tier = syncTierWithQuality(
     quality,
     classified.tier,
@@ -297,11 +298,15 @@ function finalizeCandidate(input: {
   if (quality === "EARLY_SETUP") {
     risks.push("DEVELOPING SETUP — not a buy/sell instruction");
   }
+  if (eligibility.tradeStatus === "BLOCKED" && eligibility.blockReason) {
+    risks.push(`BLOCKED: ${eligibility.blockReason}`);
+  }
   if (draft.setup.direction === "NO_TRADE" && tier === "WATCH") {
     risks.push("Waiting for confirmation — no forced entry levels");
   }
 
   const hasActionableLevels =
+    eligibility.tradeStatus === "ELIGIBLE" &&
     (quality === "STRONG" || quality === "CONFIRMED") &&
     draft.setup.status === "VALID" &&
     (draft.setup.direction === "LONG" || draft.setup.direction === "SHORT");
@@ -317,6 +322,9 @@ function finalizeCandidate(input: {
     direction: draft.setup.direction,
     tier,
     quality,
+    technicalConfirmation: eligibility.technicalConfirmation,
+    tradeStatus: eligibility.tradeStatus,
+    blockReason: eligibility.blockReason,
     setupType,
     holdingHorizon: entryPlan.holdingHorizon,
     currentPrice: draft.snapshot.currentPrice,
@@ -705,7 +713,7 @@ export async function scanDailyOpportunities(input: {
       if (mtfResult.rateLimited) {
         providerRateLimited = true;
       }
-      const scored = scoreMtfAlignment({
+      const scored = calculateMultiTimeframeScore({
         daily: draft.snapshot,
         setup: mtfResult.setup,
         entry: mtfResult.entry,
@@ -745,11 +753,15 @@ export async function scanDailyOpportunities(input: {
       sentimentScore: item.scores.sentimentScore,
       regimeScore: item.scores.marketRegimeScore,
       riskRewardScore: item.scores.riskRewardScore,
-      multiTimeframeScore: item.scores.multiTimeframeScore,
+      multiTimeFrameScore: item.scores.multiTimeFrameScore,
+      multiTimeframeScore: item.scores.multiTimeFrameScore,
       finalOpportunityScore: item.scores.opportunityScore,
       tier: item.tier,
       quality: item.quality,
-      rejectionReason: null,
+      tradeStatus: item.tradeStatus,
+      blockReason: item.blockReason,
+      technicalConfirmation: item.technicalConfirmation,
+      rejectionReason: item.blockReason,
     });
     signalAssets.push(
       buildSignalAssetDiagnostic({

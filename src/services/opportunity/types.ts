@@ -42,15 +42,15 @@ export const MARKET_REGIMES = [
 export type MarketRegime = (typeof MARKET_REGIMES)[number];
 
 /**
- * Configurable opportunity score weights (normalized).
+ * Absolute opportunity score weights (sum = 100).
  * Does not alter Trading Engine SCORE_WEIGHTS.
  *
- * Phase 22: added multiTimeframe (10) for MTF alignment evidence.
- * Existing component weights are unchanged; the new term dilutes the blend
- * via weightTotal() rather than stealing points from individual buckets.
+ * Phase 22 final: multiTimeFrame is 10 points of a literal 100-point scheme.
+ * technical is 20 (was 30 pre-MTF) so the sum stays 100 without normalizing 110→100.
+ * Canonical key is multiTimeFrame (API); multiTimeframe alias kept in serializers only.
  */
 export const OPPORTUNITY_SCORE_WEIGHTS = {
-  technical: 30,
+  technical: 20,
   momentum: 15,
   volume: 10,
   news: 15,
@@ -58,8 +58,13 @@ export const OPPORTUNITY_SCORE_WEIGHTS = {
   sentiment: 5,
   marketRegime: 5,
   riskReward: 10,
-  multiTimeframe: 10,
+  multiTimeFrame: 10,
 } as const;
+
+/** Runtime guard — weights must always sum to 100. */
+export function opportunityScoreWeightsSum(): number {
+  return Object.values(OPPORTUNITY_SCORE_WEIGHTS).reduce((a, b) => a + b, 0);
+}
 
 export const SIGNAL_QUALITIES = [
   "STRONG",
@@ -86,6 +91,14 @@ export type MtfFrameStatus = {
   dataStatus: string;
   trend: string;
   momentum: string;
+  ema20: number | null;
+  ema50: number | null;
+  ema200: number | null;
+  macd: number | null;
+  macdSignal: number | null;
+  macdHistogram: number | null;
+  atr14: number | null;
+  timestamp: string | null;
   reason: string | null;
 };
 
@@ -143,10 +156,15 @@ export type OpportunityCandidateDiagnostic = {
   sentimentScore: number;
   regimeScore: number;
   riskRewardScore: number;
+  multiTimeFrameScore: number;
+  /** @deprecated use multiTimeFrameScore */
   multiTimeframeScore: number;
   finalOpportunityScore: number;
   tier: OpportunityTier | "DATA_SKIP";
   quality: SignalQuality | "DATA_SKIP";
+  tradeStatus?: string;
+  blockReason?: string | null;
+  technicalConfirmation?: string;
   rejectionReason: string | null;
 };
 
@@ -159,6 +177,8 @@ export type OpportunityScoreBreakdown = {
   sentimentScore: number;
   marketRegimeScore: number;
   riskRewardScore: number;
+  multiTimeFrameScore: number;
+  /** @deprecated alias of multiTimeFrameScore */
   multiTimeframeScore: number;
   opportunityScore: number;
   weights: typeof OPPORTUNITY_SCORE_WEIGHTS;
@@ -171,8 +191,12 @@ export type RankedOpportunity = {
   direction: SetupDirection;
   /** Legacy board tier (persistence / Phase 18–21 compat). */
   tier: OpportunityTier;
-  /** Phase 22 explicit signal quality. */
+  /** Phase 22 explicit signal quality (ELIGIBLE trades / developing / watch). */
   quality: SignalQuality;
+  /** Technical confirmation before trade gates: NONE | WATCH | EARLY_SETUP | STRONG */
+  technicalConfirmation: string;
+  tradeStatus: "ELIGIBLE" | "BLOCKED" | "NO_TRADE";
+  blockReason: string | null;
   setupType: SetupType;
   holdingHorizon: HoldingHorizon;
   currentPrice: number | null;

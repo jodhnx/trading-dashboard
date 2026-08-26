@@ -54,8 +54,13 @@ export type SignalBlockerAggregate = {
   emaBlocked: number;
   macdBlocked: number;
   atrBlocked: number;
+  riskRewardBlocked: number;
   insufficientData: number;
   other: number;
+  /** Compact aliases for diagnostics consumers. */
+  trend: number;
+  momentum: number;
+  riskReward: number;
 };
 
 export type ConfirmationSimulation = {
@@ -65,8 +70,22 @@ export type ConfirmationSimulation = {
   liveOrCachedEvaluated: number;
   currentValid: number;
   alternativeValid: number;
+  /**
+   * Assets with technical STRONG confirmation (engine STRONG|CONFIRMED)
+   * BEFORE the final trade-eligibility gate.
+   */
   strongConfirmationCount: number;
+  /** Alias of strongConfirmationCount. */
+  strongTechnicalConfirmationCount: number;
+  /** Technical STRONG but tradeStatus BLOCKED (e.g. INVALID_RR). */
+  blockedStrongConfirmationCount: number;
+  /**
+   * Assets that passed ALL final trade gates (engine VALID LONG|SHORT).
+   * Not the same as engine confirmationLevel === CONFIRMED.
+   */
   confirmedCount: number;
+  /** Alias of confirmedCount. */
+  confirmedTradeCount: number;
   watchCount: number;
   note: string;
 };
@@ -223,17 +242,23 @@ export function aggregateBlockers(
     emaBlocked: 0,
     macdBlocked: 0,
     atrBlocked: 0,
+    riskRewardBlocked: 0,
     insufficientData: 0,
     other: 0,
+    trend: 0,
+    momentum: 0,
+    riskReward: 0,
   };
 
   for (const item of diagnostics) {
     switch (item.firstBlocker) {
       case "TREND_NOT_DIRECTIONAL":
         agg.trendBlocked += 1;
+        agg.trend += 1;
         break;
       case "MOMENTUM_NOT_ALIGNED":
         agg.momentumBlocked += 1;
+        agg.momentum += 1;
         break;
       case "EMA_NOT_ALIGNED":
       case "EMA_MACD_CONFIRMATION_MISSING":
@@ -244,6 +269,10 @@ export function aggregateBlockers(
         break;
       case "ATR_MISSING":
         agg.atrBlocked += 1;
+        break;
+      case "INVALID_RR":
+        agg.riskRewardBlocked += 1;
+        agg.riskReward += 1;
         break;
       case "INSUFFICIENT_DATA":
         agg.insufficientData += 1;
@@ -313,7 +342,7 @@ export function buildWhyNoSetupMessages(input: {
   }
 
   messages.push(
-    `Active rule: ${input.confirmationSimulation.activeConfirmationRule} → ${input.confirmationSimulation.currentValid} valid. Legacy all-four would yield ${input.confirmationSimulation.alternativeValid}. Strong ${input.confirmationSimulation.strongConfirmationCount} / confirmed ${input.confirmationSimulation.confirmedCount}.`,
+    `Active rule: ${input.confirmationSimulation.activeConfirmationRule} → ${input.confirmationSimulation.currentValid} valid. Legacy all-four would yield ${input.confirmationSimulation.alternativeValid}. Technical strong ${input.confirmationSimulation.strongTechnicalConfirmationCount} (blocked ${input.confirmationSimulation.blockedStrongConfirmationCount}) / eligible trades ${input.confirmationSimulation.confirmedTradeCount}.`,
   );
 
   return messages;
@@ -338,11 +367,22 @@ export function buildSignalDiagnosticsReport(input: {
   ).length;
   const watchCandidates = input.diagnostics.filter((d) => d.tier === "WATCH").length;
 
-  const strongConfirmationCount = liveOrCached.filter(
-    (d) => d.confirmationLevel === "STRONG",
+  const strongTechnicalConfirmationCount = liveOrCached.filter(
+    (d) =>
+      d.confirmationLevel === "STRONG" || d.confirmationLevel === "CONFIRMED",
   ).length;
-  const confirmedCount = liveOrCached.filter(
-    (d) => d.confirmationLevel === "CONFIRMED",
+  const confirmedTradeCount = liveOrCached.filter(
+    (d) =>
+      d.engineStatus === "VALID" &&
+      (d.engineDirection === "LONG" || d.engineDirection === "SHORT"),
+  ).length;
+  const blockedStrongConfirmationCount = liveOrCached.filter(
+    (d) =>
+      (d.confirmationLevel === "STRONG" || d.confirmationLevel === "CONFIRMED") &&
+      !(
+        d.engineStatus === "VALID" &&
+        (d.engineDirection === "LONG" || d.engineDirection === "SHORT")
+      ),
   ).length;
 
   const confirmationSimulation: ConfirmationSimulation = {
@@ -350,16 +390,16 @@ export function buildSignalDiagnosticsReport(input: {
     activeConfirmationRule: ACTIVE_CONFIRMATION_RULE,
     alternativeConfirmationRule: LEGACY_CONFIRMATION_RULE,
     liveOrCachedEvaluated: liveOrCached.length,
-    currentValid: liveOrCached.filter(
-      (d) =>
-        d.engineStatus === "VALID" &&
-        (d.engineDirection === "LONG" || d.engineDirection === "SHORT"),
-    ).length,
+    currentValid: confirmedTradeCount,
     alternativeValid: liveOrCached.filter((d) => d.legacyAllFourWouldPass).length,
-    strongConfirmationCount,
-    confirmedCount,
+    strongConfirmationCount: strongTechnicalConfirmationCount,
+    strongTechnicalConfirmationCount,
+    blockedStrongConfirmationCount,
+    confirmedCount: confirmedTradeCount,
+    confirmedTradeCount,
     watchCount: liveOrCached.filter((d) => d.confirmationLevel === "WATCH").length,
-    note: "Active engine rule is trend + momentum + (EMA OR MACD). alternativeValid = legacy all-four count.",
+    note:
+      "strongConfirmationCount / strongTechnicalConfirmationCount = technical STRONG|CONFIRMED before eligibility gates. blockedStrongConfirmationCount = technical strong but not VALID trade. confirmedCount / confirmedTradeCount = VALID LONG|SHORT after all gates. alternativeValid = legacy all-four.",
   };
 
   const blockerAggregate = aggregateBlockers(

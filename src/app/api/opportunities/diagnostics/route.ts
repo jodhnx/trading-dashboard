@@ -12,6 +12,10 @@ import {
   ACTIVE_CONFIRMATION_RULE,
   LEGACY_CONFIRMATION_RULE,
 } from "@/engine/trading/confirmation";
+import {
+  OPPORTUNITY_SCORE_WEIGHTS,
+  opportunityScoreWeightsSum,
+} from "@/services/opportunity/types";
 
 /**
  * Authenticated diagnostics for opportunity signal generation.
@@ -71,8 +75,12 @@ export async function GET(request: Request) {
       emaBlocked: 0,
       macdBlocked: 0,
       atrBlocked: 0,
+      riskRewardBlocked: 0,
       insufficientData: 0,
       other: 0,
+      trend: 0,
+      momentum: 0,
+      riskReward: 0,
     },
     currentConfirmationRule:
       sim?.currentConfirmationRule ?? LEGACY_CONFIRMATION_RULE,
@@ -81,9 +89,17 @@ export async function GET(request: Request) {
     alternativeConfirmationRule:
       sim?.alternativeConfirmationRule ?? LEGACY_CONFIRMATION_RULE,
     strongConfirmationCount: sim?.strongConfirmationCount ?? 0,
+    strongTechnicalConfirmationCount:
+      sim?.strongTechnicalConfirmationCount ?? sim?.strongConfirmationCount ?? 0,
+    blockedStrongConfirmationCount: sim?.blockedStrongConfirmationCount ?? 0,
     confirmedCount: sim?.confirmedCount ?? 0,
+    confirmedTradeCount: sim?.confirmedTradeCount ?? sim?.confirmedCount ?? 0,
     watchCount: sim?.watchCount ?? watchStored.length,
     confirmationSimulation: sim ?? null,
+    opportunityScoreWeights: OPPORTUNITY_SCORE_WEIGHTS,
+    opportunityScoreWeightsSum: opportunityScoreWeightsSum(),
+    confirmationSemantics:
+      "strongConfirmationCount = technical STRONG|CONFIRMED before eligibility. blockedStrongConfirmationCount = technical strong but not VALID. confirmedCount = VALID LONG|SHORT after all gates.",
     whyNoSetup: signal?.whyNoSetup ?? [
       meta.scanned
         ? "Scan completed but no signal report was stored. Re-run the daily pipeline."
@@ -116,6 +132,6 @@ export async function GET(request: Request) {
     schedulerNote:
       "Vercel Hobby supports one cron job; daily scan covers universe/news/regime/ranking. Real-time exit monitoring needs an external/hourly scheduler — daily data is not real-time.",
     disclaimer:
-      "Diagnostics only. Active confirmation rule is trend + momentum + (EMA OR MACD). Phase 22 ranks EARLY_SETUP without forcing trades.",
+      "Diagnostics only. Active confirmation rule is trend + momentum + (EMA OR MACD). Technical STRONG may be BLOCKED (e.g. INVALID_RR) without becoming a trade.",
   });
 }

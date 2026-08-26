@@ -27,7 +27,7 @@ describe("opportunity scoring", () => {
     });
     expect(scores.opportunityScore).toBeGreaterThan(0);
     expect(scores.opportunityScore).toBeLessThanOrEqual(100);
-    expect(scores.weights.technical).toBe(30);
+    expect(scores.weights.technical).toBe(20);
     expect(scores.technicalScore).toBe(breakdown.total);
   });
 

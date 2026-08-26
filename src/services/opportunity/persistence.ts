@@ -120,6 +120,9 @@ export async function persistOpportunityScan(input: {
         newsItems: opportunity.newsItems,
         confirmation: opportunity.confirmation,
         quality: opportunity.quality,
+        technicalConfirmation: opportunity.technicalConfirmation,
+        tradeStatus: opportunity.tradeStatus,
+        blockReason: opportunity.blockReason,
         dataFreshness: opportunity.dataFreshness,
         confidence: opportunity.confidence,
         thesis: opportunity.thesis,
@@ -161,6 +164,9 @@ function mapOpportunityRow(
     newsItems?: RankedOpportunity["newsItems"];
     confirmation?: RankedOpportunity["confirmation"];
     quality?: RankedOpportunity["quality"];
+    technicalConfirmation?: string;
+    tradeStatus?: RankedOpportunity["tradeStatus"];
+    blockReason?: string | null;
     dataFreshness?: RankedOpportunity["dataFreshness"];
     confidence?: number;
     thesis?: string;
@@ -190,6 +196,13 @@ function mapOpportunityRow(
           ? "STALE"
           : "UNAVAILABLE");
 
+  const multiTimeFrameScore =
+    breakdown.multiTimeFrameScore ?? breakdown.multiTimeframeScore ?? 50;
+
+  const tradeStatus: RankedOpportunity["tradeStatus"] =
+    breakdown.tradeStatus ??
+    (quality === "STRONG" || quality === "CONFIRMED" ? "ELIGIBLE" : "NO_TRADE");
+
   return {
     symbol: asset.symbol,
     name: asset.name,
@@ -202,6 +215,15 @@ function mapOpportunityRow(
           : "NO_TRADE",
     tier,
     quality,
+    technicalConfirmation:
+      breakdown.technicalConfirmation ??
+      (quality === "STRONG" || quality === "CONFIRMED"
+        ? "STRONG"
+        : quality === "EARLY_SETUP"
+          ? "EARLY_SETUP"
+          : "WATCH"),
+    tradeStatus,
+    blockReason: breakdown.blockReason ?? null,
     setupType: (row.setup_type as RankedOpportunity["setupType"]) ?? "NO_SETUP",
     holdingHorizon:
       (row.holding_horizon as RankedOpportunity["holdingHorizon"]) ?? "UNKNOWN",
@@ -228,10 +250,11 @@ function mapOpportunityRow(
       sentimentScore: breakdown.sentimentScore ?? 0,
       marketRegimeScore: breakdown.marketRegimeScore ?? 0,
       riskRewardScore: breakdown.riskRewardScore ?? 0,
-      multiTimeframeScore: breakdown.multiTimeframeScore ?? 50,
+      multiTimeFrameScore,
+      multiTimeframeScore: multiTimeFrameScore,
       opportunityScore: row.opportunity_score ?? Number(row.score) * 10,
       weights: breakdown.weights ?? {
-        technical: 30,
+        technical: 20,
         momentum: 15,
         volume: 10,
         news: 15,
@@ -239,7 +262,7 @@ function mapOpportunityRow(
         sentiment: 5,
         marketRegime: 5,
         riskReward: 10,
-        multiTimeframe: 10,
+        multiTimeFrame: 10,
       },
     },
     marketRegime: (row.market_regime as RankedOpportunity["marketRegime"]) ?? "UNKNOWN",
@@ -256,6 +279,14 @@ function mapOpportunityRow(
         dataStatus,
         trend: "UNKNOWN",
         momentum: "UNKNOWN",
+        ema20: null,
+        ema50: null,
+        ema200: null,
+        macd: null,
+        macdSignal: null,
+        macdHistogram: null,
+        atr14: null,
+        timestamp: null,
         reason: null,
       },
       setup: {
@@ -264,7 +295,15 @@ function mapOpportunityRow(
         dataStatus: "UNAVAILABLE",
         trend: "UNKNOWN",
         momentum: "UNKNOWN",
-        reason: "not_persisted",
+        ema20: null,
+        ema50: null,
+        ema200: null,
+        macd: null,
+        macdSignal: null,
+        macdHistogram: null,
+        atr14: null,
+        timestamp: null,
+        reason: "DATA_UNAVAILABLE",
       },
       entry: {
         timeframe: "1h",
@@ -272,10 +311,18 @@ function mapOpportunityRow(
         dataStatus: "UNAVAILABLE",
         trend: "UNKNOWN",
         momentum: "UNKNOWN",
-        reason: "not_persisted",
+        ema20: null,
+        ema50: null,
+        ema200: null,
+        macd: null,
+        macdSignal: null,
+        macdHistogram: null,
+        atr14: null,
+        timestamp: null,
+        reason: "DATA_UNAVAILABLE",
       },
       aligned: false,
-      score: breakdown.multiTimeframeScore ?? 50,
+      score: multiTimeFrameScore,
       notes: ["MTF details not in stored row"],
     },
     reasons: row.reasons ?? [],

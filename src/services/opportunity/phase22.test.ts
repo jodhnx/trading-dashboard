@@ -7,6 +7,7 @@ import {
   freshnessConfidenceFactor,
   toDataFreshness,
 } from "./quality";
+import { evaluateTradeEligibility } from "./trade-status";
 import {
   compareOpportunityRank,
   selectBestOpportunity,
@@ -29,6 +30,11 @@ function baseRanked(
     direction: "LONG",
     tier: "WATCH",
     quality,
+    technicalConfirmation:
+      quality === "STRONG" || quality === "CONFIRMED" ? "STRONG" : "WATCH",
+    tradeStatus:
+      quality === "STRONG" || quality === "CONFIRMED" ? "ELIGIBLE" : "NO_TRADE",
+    blockReason: null,
     setupType: "TREND_CONTINUATION",
     holdingHorizon: "SWING",
     currentPrice: 100,
@@ -54,6 +60,7 @@ function baseRanked(
       sentimentScore: 50,
       marketRegimeScore: 50,
       riskRewardScore: 50,
+      multiTimeFrameScore: 50,
       multiTimeframeScore: 50,
       opportunityScore: 70,
       weights: OPPORTUNITY_SCORE_WEIGHTS,
@@ -71,6 +78,14 @@ function baseRanked(
         dataStatus: "LIVE",
         trend: "BULLISH",
         momentum: "POSITIVE",
+        ema20: 101,
+        ema50: 99,
+        ema200: 90,
+        macd: 1,
+        macdSignal: 0.5,
+        macdHistogram: 0.5,
+        atr14: 2,
+        timestamp: null,
         reason: null,
       },
       setup: {
@@ -79,7 +94,15 @@ function baseRanked(
         dataStatus: "UNAVAILABLE",
         trend: "UNKNOWN",
         momentum: "UNKNOWN",
-        reason: "not_fetched",
+        ema20: null,
+        ema50: null,
+        ema200: null,
+        macd: null,
+        macdSignal: null,
+        macdHistogram: null,
+        atr14: null,
+        timestamp: null,
+        reason: "DATA_UNAVAILABLE",
       },
       entry: {
         timeframe: "1h",
@@ -87,7 +110,15 @@ function baseRanked(
         dataStatus: "UNAVAILABLE",
         trend: "UNKNOWN",
         momentum: "UNKNOWN",
-        reason: "not_fetched",
+        ema20: null,
+        ema50: null,
+        ema200: null,
+        macd: null,
+        macdSignal: null,
+        macdHistogram: null,
+        atr14: null,
+        timestamp: null,
+        reason: "DATA_UNAVAILABLE",
       },
       aligned: false,
       score: 50,
@@ -167,7 +198,7 @@ describe("phase22 signal quality", () => {
     ).toBe("EARLY_SETUP");
   });
 
-  it("never treats STALE valid setups as CONFIRMED/STRONG", () => {
+  it("never treats STALE valid setups as CONFIRMED/STRONG quality", () => {
     const setup = longSetup();
     const snapshot = liveSnapshot({ dataStatus: "STALE" });
     expect(
@@ -177,7 +208,14 @@ describe("phase22 signal quality", () => {
         dataFreshness: "STALE",
         mtfAligned: true,
       }),
-    ).toBe("EARLY_SETUP");
+    ).toBe("NO_TRADE");
+    expect(
+      evaluateTradeEligibility({
+        setup,
+        snapshot,
+        dataFreshness: "STALE",
+      }).tradeStatus,
+    ).toBe("BLOCKED");
   });
 
   it("maps freshness without promoting CACHED to LIVE", () => {
@@ -319,11 +357,11 @@ describe("phase22 mtf + score", () => {
       catalystScore: 60,
       sentimentScore: 50,
       marketRegime: "BULL",
-      multiTimeframeScore: 80,
+      multiTimeFrameScore: 80,
     });
-    expect(scores.multiTimeframeScore).toBe(80);
-    expect(scores.weights.multiTimeframe).toBe(10);
-    expect(scores.weights.technical).toBe(30);
+    expect(scores.multiTimeFrameScore).toBe(80);
+    expect(scores.weights.multiTimeFrame).toBe(10);
+    expect(scores.weights.technical).toBe(20);
   });
 
   it("reduces score for stale freshness factor", () => {

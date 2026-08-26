@@ -1,24 +1,21 @@
-import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
-import type { TradingSetup } from "@/engine/trading/types";
 import type { ScoreBreakdown } from "@/engine/trading/score";
+import type { TradingSetup } from "@/engine/trading/types";
+import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import { hasRequiredTechnicalData } from "@/engine/trading/validation";
 import {
   STRONG_OPPORTUNITY_MIN,
   WATCH_MIN,
+  OPPORTUNITY_SCORE_WEIGHTS,
+  opportunityScoreWeightsSum,
   type MarketRegime,
   type OpportunityScoreBreakdown,
   type OpportunityTier,
   type SetupType,
 } from "./types";
-import { OPPORTUNITY_SCORE_WEIGHTS } from "./types";
 
 function clamp(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
-}
-
-function weightTotal(): number {
-  return Object.values(OPPORTUNITY_SCORE_WEIGHTS).reduce((sum, w) => sum + w, 0);
 }
 
 export function classifySetupType(input: {
@@ -66,7 +63,6 @@ export function regimeAdjustmentScore(
   if (regime === "UNKNOWN") return 50;
   if (regime === "HIGH_VOLATILITY") return 35;
   if (regime === "SIDEWAYS") {
-    // SIDEWAYS does not kill VALID setups — only lowers confidence.
     if (confirmationLevel === "STRONG") return 55;
     if (confirmationLevel === "CONFIRMED") return 48;
     return 40;
@@ -84,10 +80,6 @@ export function regimeAdjustmentScore(
   return 50;
 }
 
-/**
- * R:R component. Missing R:R (NO_TRADE / incomplete setup) must be neutral,
- * not zero — otherwise watch candidates are artificially crushed.
- */
 export function riskRewardScore(riskReward: number | null): number {
   if (riskReward === null || !(riskReward > 0)) return 50;
   if (riskReward >= 3) return 100;
@@ -97,6 +89,9 @@ export function riskRewardScore(riskReward: number | null): number {
   return 25;
 }
 
+/**
+ * Weighted opportunity score. Weights sum to 100 — no 110/90 normalization.
+ */
 export function computeOpportunityScore(input: {
   technicalBreakdown: ScoreBreakdown;
   setup: TradingSetup;
@@ -104,11 +99,18 @@ export function computeOpportunityScore(input: {
   catalystScore: number;
   sentimentScore: number;
   marketRegime: MarketRegime;
-  /** 0–100 MTF alignment; default 50 when frames unavailable (neutral, not fabricated). */
+  multiTimeFrameScore?: number;
+  /** @deprecated use multiTimeFrameScore */
   multiTimeframeScore?: number;
-  /** Multiply final score for non-LIVE freshness (cached still ranks, confidence reduced). */
   freshnessFactor?: number;
 }): OpportunityScoreBreakdown {
+  const weightSum = opportunityScoreWeightsSum();
+  if (weightSum !== 100) {
+    throw new Error(
+      `OPPORTUNITY_SCORE_WEIGHTS must sum to 100 (got ${weightSum})`,
+    );
+  }
+
   const technicalScore = clamp(input.technicalBreakdown.total);
   const momentumScore = clamp(input.technicalBreakdown.momentum);
   const volumeScore = clamp(input.technicalBreakdown.volume);
@@ -123,7 +125,9 @@ export function computeOpportunityScore(input: {
     ),
   );
   const rrScore = riskRewardScore(input.setup.riskReward);
-  const multiTimeframeScore = clamp(input.multiTimeframeScore ?? 50);
+  const multiTimeFrameScore = clamp(
+    input.multiTimeFrameScore ?? input.multiTimeframeScore ?? 50,
+  );
   const freshnessFactor =
     typeof input.freshnessFactor === "number" &&
     Number.isFinite(input.freshnessFactor)
@@ -139,8 +143,8 @@ export function computeOpportunityScore(input: {
       OPPORTUNITY_SCORE_WEIGHTS.sentiment * sentimentScore +
       OPPORTUNITY_SCORE_WEIGHTS.marketRegime * marketRegimeScore +
       OPPORTUNITY_SCORE_WEIGHTS.riskReward * rrScore +
-      OPPORTUNITY_SCORE_WEIGHTS.multiTimeframe * multiTimeframeScore) /
-      weightTotal(),
+      OPPORTUNITY_SCORE_WEIGHTS.multiTimeFrame * multiTimeFrameScore) /
+      100,
   );
 
   return {
@@ -152,7 +156,8 @@ export function computeOpportunityScore(input: {
     sentimentScore,
     marketRegimeScore,
     riskRewardScore: rrScore,
-    multiTimeframeScore,
+    multiTimeFrameScore,
+    multiTimeframeScore: multiTimeFrameScore,
     opportunityScore: clamp(blended * freshnessFactor),
     weights: OPPORTUNITY_SCORE_WEIGHTS,
   };
@@ -163,14 +168,6 @@ export type TierClassification = {
   rejectionReason: string | null;
 };
 
-/**
- * Tier rules (Trading Engine SCORE_WEIGHTS / ATR / RR unchanged):
- * - Provider UNAVAILABLE / MOCK → not a trading decision (caller skips / DATA path)
- * - VALID LONG|SHORT + LIVE|CACHED → always OPPORTUNITY or STRONG (engine is source of truth)
- * - Never demote a VALID setup to WATCH just because composite score < 65
- * - WATCH = interesting LIVE/CACHED/STALE data without an actionable VALID setup
- * - STALE never becomes STRONG/OPPORTUNITY
- */
 export function classifyOpportunityTier(input: {
   setup: TradingSetup;
   opportunityScore: number;
@@ -202,7 +199,6 @@ export function classifyOpportunityTier(input: {
     if (input.opportunityScore >= STRONG_OPPORTUNITY_MIN) {
       return { tier: "STRONG_OPPORTUNITY", rejectionReason: null };
     }
-    // VALID engine setup is always actionable OPPORTUNITY — score only ranks confidence.
     return { tier: "OPPORTUNITY", rejectionReason: null };
   }
 
@@ -236,7 +232,6 @@ export function classifyOpportunityTier(input: {
   };
 }
 
-/** Human-readable confirmation gaps when engine has not produced LONG/SHORT. */
 export function describeWaitingFor(input: {
   setup: TradingSetup;
   snapshot: TechnicalSnapshot;
@@ -281,7 +276,6 @@ export function snapshotHasTechnicals(snapshot: TechnicalSnapshot): boolean {
   return hasRequiredTechnicalData(snapshot);
 }
 
-/** True when rejection is a data/provider failure, not a trading decision. */
 export function isDataQualityRejection(reason: string | null): boolean {
   if (!reason) return false;
   return (

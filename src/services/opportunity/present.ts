@@ -1,13 +1,33 @@
 import type { RankedOpportunity } from "./types";
 import { qualityLabel } from "./ranking";
+import { OPPORTUNITY_SCORE_WEIGHTS } from "./types";
 
 /** Stable API candidate shape for /best and board payloads. */
 export function toOpportunityCandidate(item: RankedOpportunity) {
+  const confirmationLevel =
+    item.technicalConfirmation === "STRONG"
+      ? "STRONG"
+      : item.technicalConfirmation === "EARLY_SETUP"
+        ? "EARLY_SETUP"
+        : item.confirmation?.confirmation ?? item.technicalConfirmation;
+
   return {
     symbol: item.symbol,
     name: item.name,
     assetType: item.assetClass,
-    direction: item.direction,
+    direction:
+      item.tradeStatus === "NO_TRADE" && item.direction === "NO_TRADE"
+        ? "NONE"
+        : item.direction === "NO_TRADE"
+          ? item.confirmation?.direction === "LONG" ||
+            item.confirmation?.direction === "SHORT"
+            ? item.confirmation.direction
+            : "NONE"
+          : item.direction,
+    confirmation: confirmationLevel,
+    tradeStatus: item.tradeStatus,
+    blockReason: item.blockReason,
+    technicalConfirmation: item.technicalConfirmation,
     quality: item.quality,
     qualityLabel: qualityLabel(item.quality),
     tier: item.tier,
@@ -41,8 +61,31 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
     marketRegime: item.marketRegime,
     setupType: item.setupType,
     mtf: item.mtf,
-    scores: item.scores,
-    confirmation: item.confirmation,
+    scores: {
+      technicalScore: item.scores.technicalScore,
+      momentumScore: item.scores.momentumScore,
+      volumeScore: item.scores.volumeScore,
+      newsScore: item.scores.newsScore,
+      catalystScore: item.scores.catalystScore,
+      sentimentScore: item.scores.sentimentScore,
+      marketRegimeScore: item.scores.marketRegimeScore,
+      riskRewardScore: item.scores.riskRewardScore,
+      multiTimeFrameScore: item.scores.multiTimeFrameScore,
+      multiTimeframeScore: item.scores.multiTimeFrameScore,
+      opportunityScore: item.scores.opportunityScore,
+    },
+    weights: {
+      technical: OPPORTUNITY_SCORE_WEIGHTS.technical,
+      momentum: OPPORTUNITY_SCORE_WEIGHTS.momentum,
+      news: OPPORTUNITY_SCORE_WEIGHTS.news,
+      volume: OPPORTUNITY_SCORE_WEIGHTS.volume,
+      catalyst: OPPORTUNITY_SCORE_WEIGHTS.catalyst,
+      riskReward: OPPORTUNITY_SCORE_WEIGHTS.riskReward,
+      multiTimeFrame: OPPORTUNITY_SCORE_WEIGHTS.multiTimeFrame,
+      sentiment: OPPORTUNITY_SCORE_WEIGHTS.sentiment,
+      marketRegime: OPPORTUNITY_SCORE_WEIGHTS.marketRegime,
+    },
+    confirmationDetail: item.confirmation,
     reasons: item.reasons,
     risks: item.risks,
     scannedAt: item.scannedAt,
