@@ -1,13 +1,14 @@
 import "server-only";
 
 import { createOpenAiClient } from "@/ai/create-client";
-import { MARKET_WATCHLIST } from "@/services/market/symbols";
+import { OPPORTUNITY_UNIVERSE } from "@/services/opportunity/universe";
 import { defaultPipelineBriefDate, acquirePipelineLock, releasePipelineLock } from "./lock";
 import { validatePipelineEnvironment } from "./env";
 import { warmMarketData } from "./market-step";
 import { ingestLatestNews } from "./news-step";
 import { runPipelineAiForUser } from "./ai-step";
 import { runPipelineBriefForUser } from "./brief-step";
+import { runOpportunityScanForUser } from "./opportunity-step";
 import { listActiveUsers } from "./users";
 import type { PipelineResult, PipelineStatus } from "./types";
 
@@ -39,6 +40,7 @@ export async function runDailyPipeline(input?: {
       news: { fetched: false, inserted: 0, duplicates: 0 },
       technical: { processed: 0, unavailable: 0 },
       ai: emptyAi(),
+      opportunities: emptyOpportunities(),
       brief: emptyBrief(),
       lock: { acquired: false, reason: lock.reason },
     };
@@ -46,6 +48,7 @@ export async function runDailyPipeline(input?: {
 
   const aiTotals = emptyAi();
   const briefUsers: PipelineResult["brief"]["users"] = [];
+  let opportunityTotals = emptyOpportunities();
   let newsResult: PipelineResult["news"] = {
     fetched: false,
     inserted: 0,
@@ -65,6 +68,29 @@ export async function runDailyPipeline(input?: {
     const client = createOpenAiClient();
 
     for (const user of users) {
+      try {
+        const opp = await runOpportunityScanForUser({
+          userId: user.id,
+          email: user.email,
+          briefDate,
+          now,
+        });
+        opportunityTotals = {
+          scanned: opp.summary.scanned,
+          topStocks: opp.summary.topStocks.length,
+          topCrypto: opp.summary.topCrypto.length,
+          persisted: opportunityTotals.persisted + opp.persisted.inserted,
+          noHighConfidence: opp.summary.noHighConfidence,
+          marketRegime: opp.summary.marketRegime,
+        };
+      } catch (error) {
+        console.error("[pipeline] opportunity scan failed", {
+          userId: user.id,
+          reason:
+            error instanceof Error ? error.message.slice(0, 200) : "unknown",
+        });
+      }
+
       const ai = await runPipelineAiForUser({
         userId: user.id,
         email: user.email,
@@ -90,7 +116,7 @@ export async function runDailyPipeline(input?: {
     const technicalUnavailable = marketResult.assets.filter(
       (asset) => asset.technicalStatus === "UNAVAILABLE",
     ).length;
-    const technicalProcessed = MARKET_WATCHLIST.length - technicalUnavailable;
+    const technicalProcessed = OPPORTUNITY_UNIVERSE.length - technicalUnavailable;
 
     const briefCreated = briefUsers.filter((item) => item.created).length;
     const briefExists = briefUsers.filter((item) => item.alreadyExists).length;
@@ -111,7 +137,7 @@ export async function runDailyPipeline(input?: {
       status,
       date: briefDate,
       durationMs: Date.now() - started,
-      assetsProcessed: MARKET_WATCHLIST.length,
+      assetsProcessed: OPPORTUNITY_UNIVERSE.length,
       market: {
         live: marketResult.live,
         cached: marketResult.cached,
@@ -131,6 +157,7 @@ export async function runDailyPipeline(input?: {
         unavailable: technicalUnavailable,
       },
       ai: aiTotals,
+      opportunities: opportunityTotals,
       brief: {
         usersProcessed: users.length,
         created: briefCreated,
@@ -217,6 +244,17 @@ function emptyAi(): PipelineResult["ai"] {
   };
 }
 
+function emptyOpportunities(): PipelineResult["opportunities"] {
+  return {
+    scanned: 0,
+    topStocks: 0,
+    topCrypto: 0,
+    persisted: 0,
+    noHighConfidence: true,
+    marketRegime: "UNKNOWN",
+  };
+}
+
 function emptyBrief(): PipelineResult["brief"] {
   return {
     usersProcessed: 0,
@@ -242,6 +280,7 @@ function failedResult(input: {
     news: { fetched: false, inserted: 0, duplicates: 0, error: input.reason },
     technical: { processed: 0, unavailable: 0 },
     ai: emptyAi(),
+    opportunities: emptyOpportunities(),
     brief: emptyBrief(),
     lock: input.lockAcquired ? { acquired: true } : { acquired: false, reason: input.reason },
   };
@@ -263,6 +302,7 @@ function sanitizeSummary(result: PipelineResult): Record<string, unknown> {
     news: result.news,
     technical: result.technical,
     ai: result.ai,
+    opportunities: result.opportunities,
     brief: {
       usersProcessed: result.brief.usersProcessed,
       created: result.brief.created,

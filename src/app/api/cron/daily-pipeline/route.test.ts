@@ -11,7 +11,7 @@ vi.mock("@/services/pipeline/run-daily", () => ({
   runDailyPipeline: (...args: unknown[]) => runDailyPipeline(...args),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 describe("POST /api/cron/daily-pipeline", () => {
   beforeEach(() => {
@@ -76,5 +76,56 @@ describe("POST /api/cron/daily-pipeline", () => {
       new Request("http://localhost/api/cron/daily-pipeline", { method: "POST" }),
     );
     expect(response.status).toBe(409);
+  });
+});
+
+describe("GET /api/cron/daily-pipeline (Vercel Cron)", () => {
+  beforeEach(() => {
+    verifyCronAuthorization.mockReset();
+    runDailyPipeline.mockReset();
+  });
+
+  it("accepts authorized GET the same way Vercel Cron invokes the route", async () => {
+    verifyCronAuthorization.mockReturnValue(true);
+    runDailyPipeline.mockResolvedValue({
+      status: "PARTIAL",
+      date: "2026-08-26",
+      durationMs: 100,
+      assetsProcessed: 23,
+      market: { live: 20, cached: 0, stale: 0, mock: 0, unavailable: 3, assets: [] },
+      news: { fetched: true, inserted: 0, duplicates: 1 },
+      technical: { processed: 20, unavailable: 3 },
+      ai: { requested: 0, completed: 0, reused: 0, skipped: 6, unavailable: 0 },
+      opportunities: {
+        scanned: 23,
+        topStocks: 2,
+        topCrypto: 1,
+        persisted: 3,
+        noHighConfidence: false,
+        marketRegime: "BULL",
+      },
+      brief: { usersProcessed: 1, created: 1, alreadyExists: 0, failed: 0, users: [] },
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/daily-pipeline", {
+        method: "GET",
+        headers: { Authorization: "Bearer test-secret" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe("PARTIAL");
+    expect(runDailyPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 401 for GET without valid authorization", async () => {
+    verifyCronAuthorization.mockReturnValue(false);
+    const response = await GET(
+      new Request("http://localhost/api/cron/daily-pipeline", { method: "GET" }),
+    );
+    expect(response.status).toBe(401);
+    expect(runDailyPipeline).not.toHaveBeenCalled();
   });
 });

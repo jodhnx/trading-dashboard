@@ -29,10 +29,42 @@ export const MARKET_WATCHLIST: WatchAsset[] = [
 const ALIASES: Record<string, string> = {
   "BTC/USD": "BTC",
   BITCOIN: "BTC",
+  "ETH/USD": "ETH",
+  ETHEREUM: "ETH",
+  "SOL/USD": "SOL",
+  "XRP/USD": "XRP",
+  "LINK/USD": "LINK",
   "XAU/USD": "XAU",
   GOLD: "XAU",
   DXY: "USD",
   USDOLLAR: "USD",
+};
+
+/** Verified Twelve Data mappings beyond MARKET_WATCHLIST (opportunity universe). */
+const PROVIDER_MAP: Record<string, string | null> = {
+  SPY: "SPY",
+  QQQ: "QQQ",
+  IWM: "IWM",
+  XLK: "XLK",
+  XLF: "XLF",
+  XLE: "XLE",
+  AAPL: "AAPL",
+  MSFT: "MSFT",
+  NVDA: "NVDA",
+  AMZN: "AMZN",
+  META: "META",
+  TSLA: "TSLA",
+  AMD: "AMD",
+  JPM: "JPM",
+  XOM: "XOM",
+  UNH: "UNH",
+  BTC: "BTC/USD",
+  ETH: "ETH/USD",
+  SOL: "SOL/USD",
+  XRP: "XRP/USD",
+  LINK: "LINK/USD",
+  XAU: "XAU/USD",
+  USD: null,
 };
 
 export function normalizeInternalSymbol(raw: string): string {
@@ -50,6 +82,9 @@ export function toProviderSymbol(symbol: string): string | null {
   const watched = getWatchAsset(internal);
   if (watched) {
     return watched.providerSymbol;
+  }
+  if (Object.prototype.hasOwnProperty.call(PROVIDER_MAP, internal)) {
+    return PROVIDER_MAP[internal] ?? null;
   }
   if (internal === "USD") {
     return null;

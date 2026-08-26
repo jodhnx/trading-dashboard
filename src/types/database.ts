@@ -231,6 +231,19 @@ export type OpportunityRow = {
   invalidation: string | null;
   status: OpportunityStatus;
   created_at: string;
+  opportunity_score: number | null;
+  score_breakdown: Json;
+  asset_class: string | null;
+  setup_type: string | null;
+  holding_horizon: string | null;
+  opportunity_tier: string | null;
+  market_regime: string | null;
+  entry_zone_low: number | null;
+  entry_zone_high: number | null;
+  max_chase: number | null;
+  scan_date: string | null;
+  data_status: string | null;
+  news_headlines: string[];
 };
 
 export type PaperPositionRow = {

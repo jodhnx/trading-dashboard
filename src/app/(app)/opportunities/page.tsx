@@ -1,11 +1,5 @@
-import { PagePlaceholder } from "@/components/page-placeholder";
+import { OpportunitiesWorkspace } from "@/components/opportunities/opportunities-workspace";
 
 export default function OpportunitiesPage() {
-  return (
-    <PagePlaceholder
-      title="Opportunities"
-      phase="Phase 8–10"
-      description="AI setups with entry, stop, targets, and position size."
-    />
-  );
+  return <OpportunitiesWorkspace />;
 }

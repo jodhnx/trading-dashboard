@@ -9,6 +9,7 @@ const ingestLatestNews = vi.fn();
 const listActiveUsers = vi.fn();
 const runPipelineAiForUser = vi.fn();
 const runPipelineBriefForUser = vi.fn();
+const runOpportunityScanForUser = vi.fn();
 const createOpenAiClient = vi.fn();
 
 vi.mock("./lock", () => ({
@@ -37,6 +38,10 @@ vi.mock("./brief-step", () => ({
   runPipelineBriefForUser: (...args: unknown[]) => runPipelineBriefForUser(...args),
 }));
 
+vi.mock("./opportunity-step", () => ({
+  runOpportunityScanForUser: (...args: unknown[]) => runOpportunityScanForUser(...args),
+}));
+
 vi.mock("@/ai/create-client", () => ({
   createOpenAiClient: () => createOpenAiClient(),
 }));
@@ -56,8 +61,26 @@ describe("runDailyPipeline", () => {
     listActiveUsers.mockReset();
     runPipelineAiForUser.mockReset();
     runPipelineBriefForUser.mockReset();
+    runOpportunityScanForUser.mockReset();
     createOpenAiClient.mockReset();
     createOpenAiClient.mockReturnValue({ isMock: true });
+    runOpportunityScanForUser.mockResolvedValue({
+      summary: {
+        scanned: 23,
+        available: 20,
+        unavailable: 3,
+        strong: 1,
+        opportunities: 2,
+        watch: 3,
+        noTrade: 10,
+        topStocks: [{ symbol: "NVDA" }],
+        topCrypto: [{ symbol: "BTC" }],
+        all: [],
+        marketRegime: "BULL",
+        noHighConfidence: false,
+      },
+      persisted: { inserted: 3, skipped: 0 },
+    });
   });
 
   it("skips when the lock is not acquired", async () => {

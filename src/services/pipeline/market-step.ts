@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createMarketDataService } from "@/services/market/create-service";
-import { MARKET_WATCHLIST } from "@/services/market/symbols";
+import { OPPORTUNITY_UNIVERSE } from "@/services/opportunity/universe";
 import { DAILY_BRIEF_TIMEFRAME } from "@/services/daily-brief/types";
 import type { DataStatus } from "@/services/market/provider";
 import { invalidateMarketSymbolCache } from "./cache-invalidation";
@@ -27,15 +27,14 @@ function bumpStatus(counts: MarketWarmResult["counts"], status: DataStatus | "UN
 }
 
 /**
- * Warm shared market cache + persistence for all watchlist assets once per pipeline run.
- * Subsequent assemble/getQuote/getTechnicalSnapshot calls reuse cached results.
+ * Warm shared market cache for the opportunity universe once per pipeline run.
  */
 export async function warmMarketData(): Promise<MarketWarmResult> {
   const market = createMarketDataService();
   const assets: PipelineAssetResult[] = [];
   const counts = { live: 0, cached: 0, stale: 0, mock: 0, unavailable: 0 };
 
-  for (const asset of MARKET_WATCHLIST) {
+  for (const asset of OPPORTUNITY_UNIVERSE) {
     try {
       invalidateMarketSymbolCache(asset.symbol, DAILY_BRIEF_TIMEFRAME);
       const quote = await market.getQuote(asset.symbol);

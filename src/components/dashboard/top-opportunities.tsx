@@ -74,14 +74,19 @@ export function TopOpportunities({
 }) {
   return (
     <section className="space-y-2">
-      <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-        Top opportunities
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          Top opportunities
+        </h3>
+        <Link href="/opportunities" className="text-[11px] text-accent hover:underline">
+          Full opportunity board →
+        </Link>
+      </div>
       {opportunities.length === 0 ? (
         <Card>
-          <p className="text-sm font-medium">NO VALID OPPORTUNITIES</p>
+          <p className="text-sm font-medium">NO HIGH-CONFIDENCE SETUPS</p>
           <p className="mt-1 text-xs text-muted">
-            This is a valid result. The Trading Engine found no VALID setups.
+            This is a valid result. The Trading Engine found no VALID setups for today.
           </p>
         </Card>
       ) : (

@@ -17,12 +17,12 @@ import {
   buildNoTradeAssets,
   buildOpportunities,
   buildWatchlist,
-  classifyMarketRegime,
   classifyRiskEnvironment,
   collectRisks,
   deriveFinalStatus,
   deterministicSummary,
 } from "./classify";
+import { detectMarketRegime, regimeToBriefLabel } from "@/services/opportunity/regime";
 import { briefDayBoundsUtc } from "./date";
 import { DAILY_BRIEF_PROMPT_VERSION, DAILY_BRIEF_TIMEFRAME } from "./types";
 import type { BriefPersistence } from "./persistence";
@@ -205,7 +205,16 @@ export async function assembleDailyBriefInput(input: {
     newsCount: importantNews.length,
     aiAnalyses,
   });
-  const marketRegime = classifyMarketRegime(technicalConditions);
+  const marketRegime = regimeToBriefLabel(
+    detectMarketRegime(
+      technicalConditions.map((item) => ({
+        symbol: item.symbol,
+        trend: item.trend,
+        volatility: item.volatility,
+        dataStatus: item.dataStatus,
+      })),
+    ),
+  );
   const riskEnvironment = classifyRiskEnvironment({
     dataStatus,
     setups: tradingSetups,

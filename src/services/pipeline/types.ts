@@ -46,6 +46,14 @@ export type PipelineResult = {
     skipped: number;
     unavailable: number;
   };
+  opportunities: {
+    scanned: number;
+    topStocks: number;
+    topCrypto: number;
+    persisted: number;
+    noHighConfidence: boolean;
+    marketRegime: string;
+  };
   brief: {
     usersProcessed: number;
     created: number;
