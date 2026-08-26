@@ -24,6 +24,17 @@ function baseSetup(overrides: Partial<TradingSetup> = {}): TradingSetup {
     dataStatus: "LIVE",
     reasons: [],
     rejectReasons: [],
+    confirmation: {
+      direction: "LONG",
+      confirmation: "STRONG",
+      trend: "BULLISH",
+      momentum: "POSITIVE",
+      ema: "BULLISH",
+      macd: "POSITIVE",
+      atrValid: true,
+      rrValid: true,
+      explain: "strong",
+    },
     createdAt: new Date("2026-08-25T12:00:00.000Z"),
     ...overrides,
   };

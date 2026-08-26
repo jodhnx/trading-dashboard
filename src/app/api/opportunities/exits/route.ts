@@ -1,6 +1,5 @@
 import { getAuthUser } from "@/lib/auth/session";
-import { loadUserExitCandidates } from "@/services/exit/load-user-exits";
-import { SCHEDULER_NOTE } from "@/services/opportunity/types";
+import { runExitMonitor } from "@/services/exit/run-monitor";
 
 /**
  * Exit / thesis monitoring for open paper positions.
@@ -16,16 +15,11 @@ export async function GET() {
     );
   }
 
-  const exits = await loadUserExitCandidates(user.id);
+  const result = await runExitMonitor({ userId: user.id });
 
   return Response.json({
-    ok: true,
-    exits,
-    count: exits.length,
-    urgent: exits.filter((e) => e.exitUrgency === "URGENT_EXIT"),
-    takeProfit: exits.filter((e) => e.exitUrgency === "TAKE_PROFIT"),
-    schedulerNote: SCHEDULER_NOTE,
+    ...result,
     disclaimer:
-      "Exit states are informational. Prices come from the market provider when LIVE/CACHED; missing quotes are omitted, never invented.",
+      "Exit states are informational / PAPER. Prices come from the market provider when LIVE/CACHED; missing quotes are omitted, never invented. Daily cron is not intraday real-time.",
   });
 }

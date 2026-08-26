@@ -76,6 +76,12 @@ export async function GET(request: Request) {
 
   const exitAlerts = await loadUserExitCandidates(user.id);
 
+  const validSetups = opportunities.filter(
+    (item) =>
+      (item.quality === "STRONG" || item.quality === "CONFIRMED") &&
+      item.tradeStatus === "ELIGIBLE",
+  ).length;
+
   return Response.json({
     ok: true,
     date,
@@ -96,6 +102,13 @@ export async function GET(request: Request) {
     developing: board.developing.map(toOpportunityCandidate),
     blocked: board.blocked.map(toOpportunityCandidate),
     watch: board.watch.map(toOpportunityCandidate),
+    summary: {
+      validSetups,
+      developing: board.developing.length,
+      watch: board.watch.length,
+      blocked: board.blocked.length,
+      openPaperHint: "See Paper Positions for open simulated trades.",
+    },
     exitAlerts,
     whyNoSetup: pipelineMeta.signalReport?.whyNoSetup ?? [],
     blockerAggregate: pipelineMeta.signalReport?.blockerAggregate ?? null,
@@ -111,6 +124,6 @@ export async function GET(request: Request) {
     schedulerNote: SCHEDULER_NOTE,
     message: boardMessage(boardState),
     disclaimer:
-      "Opportunities are informational only — not executed orders. BLOCKED means technical confirmation exists but a final gate (e.g. R:R) prevents a trade. EARLY_SETUP is not a buy/sell instruction. Paper trading is simulated.",
+      "PAPER / informational only — not broker orders. Only CONFIRMED/STRONG + ELIGIBLE with valid levels is actionable. BLOCKED / EARLY_SETUP / WATCH are never BUY.",
   });
 }

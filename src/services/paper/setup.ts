@@ -46,7 +46,26 @@ export function isPaperTradeableSetup(setup: TradingSetup): {
   ) {
     return {
       ok: false,
-      reason: `Market data status ${setup.dataStatus} cannot be used for paper trades.`,
+      reason: `ENTRY REJECTED — Market data status ${setup.dataStatus} cannot be used for paper trades.`,
+    };
+  }
+  if (setup.confirmation?.confirmation === "WATCH") {
+    return {
+      ok: false,
+      reason:
+        "ENTRY REJECTED — Setup confirmation is WATCH. Wait for STRONG/CONFIRMED.",
+    };
+  }
+  if (
+    !setup.confirmation ||
+    (setup.confirmation.confirmation !== "STRONG" &&
+      setup.confirmation.confirmation !== "CONFIRMED")
+  ) {
+    return {
+      ok: false,
+      reason: setup.confirmation
+        ? `ENTRY REJECTED — Confirmation is ${setup.confirmation.confirmation}.`
+        : "ENTRY REJECTED — Setup is no longer valid (missing STRONG/CONFIRMED confirmation).",
     };
   }
   const required = [
@@ -58,7 +77,10 @@ export function isPaperTradeableSetup(setup: TradingSetup): {
     setup.riskAmount,
   ];
   if (required.some((value) => value === null || !Number.isFinite(value) || value <= 0)) {
-    return { ok: false, reason: "Setup is missing required trade levels or size." };
+    return { ok: false, reason: "ENTRY REJECTED — Setup is missing required trade levels or size." };
+  }
+  if (setup.riskReward === null || !(setup.riskReward > 0)) {
+    return { ok: false, reason: "ENTRY REJECTED — Invalid risk/reward." };
   }
   return { ok: true };
 }

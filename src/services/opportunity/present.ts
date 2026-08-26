@@ -1,15 +1,25 @@
 import type { RankedOpportunity } from "./types";
 import { qualityLabel } from "./ranking";
 import { OPPORTUNITY_SCORE_WEIGHTS } from "./types";
+import {
+  deriveTradeAction,
+  isActionableOpportunity,
+  tradeActionLabel,
+} from "./actionable";
 
 /** Stable API candidate shape for /best and board payloads. */
 export function toOpportunityCandidate(item: RankedOpportunity) {
   const confirmationLevel =
-    item.technicalConfirmation === "STRONG"
-      ? "STRONG"
-      : item.technicalConfirmation === "EARLY_SETUP"
-        ? "EARLY_SETUP"
-        : item.confirmation?.confirmation ?? item.technicalConfirmation;
+    item.quality === "STRONG" || item.quality === "CONFIRMED"
+      ? item.quality
+      : item.technicalConfirmation === "STRONG"
+        ? "STRONG"
+        : item.technicalConfirmation === "EARLY_SETUP"
+          ? "EARLY_SETUP"
+          : item.confirmation?.confirmation ?? item.technicalConfirmation;
+
+  const action = deriveTradeAction(item);
+  const actionable = isActionableOpportunity(item);
 
   return {
     symbol: item.symbol,
@@ -31,6 +41,9 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
     quality: item.quality,
     qualityLabel: qualityLabel(item.quality),
     tier: item.tier,
+    actionable,
+    action,
+    actionLabel: tradeActionLabel(action),
     opportunityScore: item.scores.opportunityScore,
     confidence: item.confidence,
     price: item.currentPrice,
@@ -47,7 +60,7 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
     thesis: item.thesis,
     waitingFor: item.waitingFor,
     invalidation: item.invalidation,
-    news: item.newsItems.map((n) => ({
+    news: item.newsItems.slice(0, 3).map((n) => ({
       source: n.source,
       publishedAt: n.publishedAt,
       headline: n.title,
@@ -61,6 +74,7 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
     marketRegime: item.marketRegime,
     setupType: item.setupType,
     mtf: item.mtf,
+    mtfScore: item.scores.multiTimeFrameScore,
     scores: {
       technicalScore: item.scores.technicalScore,
       momentumScore: item.scores.momentumScore,

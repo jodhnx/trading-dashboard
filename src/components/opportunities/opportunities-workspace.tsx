@@ -15,6 +15,15 @@ type NewsItem = {
   relevance: string;
 };
 
+type MtfFrame = {
+  timeframe: string;
+  available: boolean;
+  dataStatus: string;
+  trend: string;
+  momentum: string;
+  reason: string | null;
+};
+
 type OpportunityCandidate = {
   symbol: string;
   assetType: string;
@@ -25,6 +34,9 @@ type OpportunityCandidate = {
   tradeStatus?: string;
   blockReason?: string | null;
   technicalConfirmation?: string;
+  actionable?: boolean;
+  action?: string;
+  actionLabel?: string;
   opportunityScore: number;
   confidence: number;
   price: number | null;
@@ -42,8 +54,16 @@ type OpportunityCandidate = {
   dataQuality: string;
   dataStatus: string;
   marketRegime: string;
+  mtfScore?: number;
+  mtf?: {
+    daily: MtfFrame;
+    setup: MtfFrame;
+    entry: MtfFrame;
+    aligned: boolean;
+    score: number;
+  };
   reasons: string[];
-  confirmationDetail?: { explain: string } | null;
+  confirmationDetail?: { explain: string; trend?: string; momentum?: string; ema?: string; macd?: string } | null;
   scannedAt: string;
 };
 
@@ -52,6 +72,7 @@ type ExitAlert = {
   symbol: string;
   side: string;
   exitAction?: string;
+  exitActionLabel?: string;
   exitUrgency?: string;
   currentPrice: number;
   entryPrice: number;
@@ -60,6 +81,7 @@ type ExitAlert = {
   takeProfit1: number | null;
   takeProfit2: number | null;
   exitReason?: string;
+  lastChecked?: string;
   evaluatedAt: string;
   evaluation?: {
     state: string;
@@ -85,6 +107,13 @@ type OpportunitiesPayload = {
   blocked?: OpportunityCandidate[];
   watch: OpportunityCandidate[];
   exitAlerts: ExitAlert[];
+  summary?: {
+    validSetups: number;
+    developing: number;
+    watch: number;
+    blocked: number;
+    openPaperHint?: string;
+  };
   whyNoSetup?: string[];
   blockerAggregate?: {
     trendBlocked: number;
@@ -92,17 +121,9 @@ type OpportunitiesPayload = {
     emaBlocked: number;
     macdBlocked: number;
     atrBlocked: number;
+    riskRewardBlocked?: number;
     insufficientData: number;
     other: number;
-  } | null;
-  confirmationSimulation?: {
-    activeConfirmationRule?: string;
-    currentValid: number;
-    alternativeValid: number;
-    liveOrCachedEvaluated: number;
-    strongConfirmationCount?: number;
-    confirmedCount?: number;
-    note: string;
   } | null;
   schedulerNote?: string;
   message?: string;
@@ -114,170 +135,16 @@ function formatPrice(value: number | null | undefined): string {
   return value >= 1000 ? value.toFixed(0) : value.toFixed(2);
 }
 
-function qualityTone(
-  quality: string,
-): "positive" | "accent" | "warning" | "negative" | "neutral" {
-  if (quality === "STRONG") return "positive";
-  if (quality === "CONFIRMED") return "accent";
-  if (quality === "EARLY_SETUP") return "warning";
-  if (quality === "WATCH") return "neutral";
-  return "neutral";
-}
-
-function CandidateCard({
-  item,
-  rank,
-  emphasize,
-}: {
-  item: OpportunityCandidate;
-  rank?: number;
-  emphasize?: boolean;
-}) {
-  const blocked = item.tradeStatus === "BLOCKED";
-  const highConfidence =
-    !blocked && (item.quality === "STRONG" || item.quality === "CONFIRMED");
-
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <Card className={emphasize ? "space-y-3 border-accent/40" : "space-y-3"}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {rank !== undefined ? (
-            <span className="font-mono text-xs text-muted">#{rank}</span>
-          ) : null}
-          <Link
-            href={`/market/${encodeURIComponent(item.symbol)}`}
-            className="font-mono text-lg font-semibold hover:text-accent"
-          >
-            {item.symbol}
-          </Link>
-          <Badge
-            tone={
-              item.direction === "LONG"
-                ? "positive"
-                : item.direction === "SHORT"
-                  ? "negative"
-                  : "neutral"
-            }
-          >
-            {item.direction}
-          </Badge>
-          {item.confirmation || item.technicalConfirmation ? (
-            <Badge tone="accent">
-              {item.confirmation ?? item.technicalConfirmation}
-            </Badge>
-          ) : null}
-          <Badge tone={qualityTone(item.quality)}>{item.quality}</Badge>
-          {blocked ? <Badge tone="warning">BLOCKED</Badge> : null}
-          {item.tradeStatus && !blocked ? (
-            <Badge tone="neutral">{item.tradeStatus}</Badge>
-          ) : null}
-          <Badge tone="neutral">{item.assetType}</Badge>
-        </div>
-        <div className="text-right">
-          <p className="font-mono text-sm">Score {item.opportunityScore.toFixed(0)}</p>
-          <p className="text-[10px] text-muted">Confidence {item.confidence}</p>
-        </div>
-      </div>
-
-      {blocked ? (
-        <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
-          <p className="text-xs font-semibold">STRONG TECHNICAL SETUP — TRADE BLOCKED</p>
-          <p className="mt-1 text-[11px] text-muted">
-            Reason: {item.blockReason ?? "Final trade gate failed"} — not a buy/sell
-            instruction.
-          </p>
-        </div>
-      ) : null}
-
-      {!highConfidence && !blocked ? (
-        <p className="text-xs font-medium text-amber-200/90">
-          {item.qualityLabel}
-        </p>
-      ) : null}
-
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
-        <div>
-          <p className="text-[10px] uppercase text-muted">Price</p>
-          <p className="font-mono">{formatPrice(item.price)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase text-muted">Entry</p>
-          <p className="font-mono">
-            {item.entryZone
-              ? `${formatPrice(item.entryZone.low)} – ${formatPrice(item.entryZone.high)}`
-              : formatPrice(item.entry)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase text-muted">Stop</p>
-          <p className="font-mono">{formatPrice(item.stop)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase text-muted">TP1 / TP2</p>
-          <p className="font-mono">
-            {formatPrice(item.tp1)} / {formatPrice(item.tp2)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase text-muted">R:R</p>
-          <p className="font-mono">{item.riskReward?.toFixed(2) ?? "—"}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase text-muted">Horizon</p>
-          <p className="font-mono">{item.timeHorizon}</p>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-[10px] uppercase text-muted">Why</p>
-        <p className="mt-0.5 text-xs text-muted">{item.thesis}</p>
-      </div>
-
-      {item.waitingFor.length > 0 ? (
-        <div>
-          <p className="text-[10px] uppercase text-muted">Waiting for</p>
-          <p className="mt-0.5 text-xs text-muted">{item.waitingFor.join(" · ")}</p>
-        </div>
-      ) : null}
-
-      {item.invalidation !== null ? (
-        <p className="text-xs text-muted">
-          Invalidation: {formatPrice(item.invalidation)}
-        </p>
-      ) : null}
-
-      {item.news.length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-[10px] uppercase text-muted">News</p>
-          {item.news.slice(0, 2).map((news) => (
-            <p key={`${news.headline}-${news.publishedAt}`} className="text-[11px] text-muted">
-              {news.headline}
-              {news.source ? ` · ${news.source}` : ""}
-              {news.publishedAt
-                ? ` · ${new Date(news.publishedAt).toLocaleString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`
-                : ""}
-              {` · ${news.sentiment} · ${news.category}`}
-            </p>
-          ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-muted">No symbol-linked recent news.</p>
-      )}
-
-      <p className="text-[10px] text-muted">
-        Freshness {item.dataQuality} · Data {item.dataStatus} · Regime {item.marketRegime} ·
-        Engine levels only — not an order.
-      </p>
-    </Card>
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-0.5 font-mono text-sm">{value}</p>
+    </div>
   );
 }
 
-function BestBlock({
+function SignalCard({
   title,
   item,
   emptyReason,
@@ -286,22 +153,136 @@ function BestBlock({
   item: OpportunityCandidate | null;
   emptyReason: string | null | undefined;
 }) {
+  if (!item || !item.actionable) {
+    return (
+      <Card className="space-y-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          {title}
+        </p>
+        <p className="text-sm font-semibold">NO CONFIRMED {title.replace("BEST ", "")} SETUP</p>
+        <p className="text-xs text-muted">
+          {emptyReason ?? "WAIT — no candidate currently meets all trading requirements."}
+        </p>
+      </Card>
+    );
+  }
+
   return (
-    <section className="space-y-2">
-      <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+    <Card className="space-y-3 border-accent/40">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
         {title}
-      </h3>
-      {item ? (
-        <CandidateCard item={item} emphasize />
-      ) : (
-        <Card>
-          <p className="text-sm font-medium">No high-confidence opportunity currently.</p>
-          {emptyReason ? (
-            <p className="mt-1 text-xs text-muted">{emptyReason}</p>
-          ) : null}
-        </Card>
-      )}
-    </section>
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href={`/market/${encodeURIComponent(item.symbol)}`}
+          className="font-mono text-xl font-semibold hover:text-accent"
+        >
+          {item.symbol}
+        </Link>
+        <Badge tone={item.direction === "LONG" ? "positive" : "negative"}>
+          {item.direction}
+        </Badge>
+        <Badge tone="positive">{item.quality}</Badge>
+        <Badge tone="accent">ELIGIBLE</Badge>
+        <Badge tone="neutral">{item.dataQuality}</Badge>
+      </div>
+
+      <p className="text-sm font-semibold text-accent">
+        {item.actionLabel ?? "ENTER IN ENTRY ZONE"}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <Metric label="Price" value={formatPrice(item.price)} />
+        <Metric
+          label="Entry zone"
+          value={
+            item.entryZone
+              ? `${formatPrice(item.entryZone.low)} – ${formatPrice(item.entryZone.high)}`
+              : formatPrice(item.entry)
+          }
+        />
+        <Metric label="Stop" value={formatPrice(item.stop)} />
+        <Metric label="TP1" value={formatPrice(item.tp1)} />
+        <Metric label="TP2" value={formatPrice(item.tp2)} />
+        <Metric
+          label="R:R"
+          value={item.riskReward !== null ? `1:${item.riskReward.toFixed(2)}` : "—"}
+        />
+        <Metric label="Confidence" value={`${item.confidence}%`} />
+        <Metric
+          label="Score / MTF"
+          value={`${item.opportunityScore.toFixed(0)} / ${item.mtfScore?.toFixed(0) ?? "—"}`}
+        />
+      </div>
+
+      <div>
+        <p className="text-[10px] uppercase text-muted">Thesis</p>
+        <p className="mt-0.5 text-xs text-muted">{item.thesis}</p>
+      </div>
+      {item.invalidation !== null ? (
+        <p className="text-xs text-muted">
+          Invalidation: {formatPrice(item.invalidation)}
+        </p>
+      ) : null}
+
+      {item.mtf ? (
+        <div className="grid grid-cols-3 gap-2 text-[11px] text-muted">
+          {(["daily", "setup", "entry"] as const).map((key) => {
+            const frame = item.mtf![key];
+            return (
+              <div key={key}>
+                <p className="uppercase">{frame.timeframe}</p>
+                <p>
+                  {frame.available
+                    ? `${frame.trend} / ${frame.momentum}`
+                    : "DATA UNAVAILABLE"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {item.news.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-[10px] uppercase text-muted">News</p>
+          {item.news.slice(0, 3).map((n) => (
+            <p key={`${n.headline}-${n.publishedAt}`} className="text-[11px] text-muted">
+              {n.headline}
+              {n.source ? ` · ${n.source}` : ""}
+              {n.publishedAt
+                ? ` · ${new Date(n.publishedAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+              {` · ${n.sentiment}`}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Link
+          href={`/market/${encodeURIComponent(item.symbol)}`}
+          className="inline-flex min-h-10 items-center rounded-md bg-accent px-3 text-sm font-medium text-background hover:bg-accent/90"
+        >
+          Verify on market page
+        </Link>
+        <Link
+          href="/positions"
+          className="inline-flex min-h-10 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-surface-2"
+        >
+          Paper Positions
+        </Link>
+      </div>
+      <p className="text-[10px] text-muted">
+        PAPER workflow only — open trade from the market page after verifying levels.
+        Engine levels only. Not a broker order.
+      </p>
+    </Card>
   );
 }
 
@@ -314,9 +295,7 @@ export function OpportunitiesWorkspace() {
     (async () => {
       try {
         const response = await fetch("/api/opportunities");
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const body = (await response.json()) as OpportunitiesPayload;
         if (!cancelled) setData(body);
       } catch (err) {
@@ -349,13 +328,13 @@ export function OpportunitiesWorkspace() {
 
   const developing = data.developing ?? [];
   const blocked = data.blocked ?? [];
-  const rankedPreview = [...data.topStocks, ...data.topCrypto].slice(0, 3);
+  const hasActionable = Boolean(data.bestStock?.actionable || data.bestCrypto?.actionable);
 
   return (
     <div className="space-y-5">
       <div>
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
-          Today&apos;s best opportunities
+          Today&apos;s trading signal
         </p>
         <h2 className="mt-1 text-xl font-semibold tracking-tight">
           {data.date}
@@ -366,71 +345,60 @@ export function OpportunitiesWorkspace() {
           {" · "}
           Board: <span className="font-medium text-foreground">{data.boardState}</span>
           {" · "}
-          Stored scan — prices and levels are never invented on this page.
+          Stored scan — never invents prices on this page.
         </p>
       </div>
 
-      {data.noHighConfidence ? (
-        <Card>
-          <p className="text-sm font-semibold">No high-confidence opportunity currently.</p>
-          <p className="mt-1 text-xs text-muted">
+      <Card>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+          Daily summary
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-8">
+          <Metric label="Regime" value={data.marketRegime} />
+          <Metric label="Best stock" value={data.bestStock?.actionable ? data.bestStock.symbol : "WAIT"} />
+          <Metric label="Best crypto" value={data.bestCrypto?.actionable ? data.bestCrypto.symbol : "WAIT"} />
+          <Metric label="Valid" value={String(data.summary?.validSetups ?? 0)} />
+          <Metric label="Developing" value={String(data.summary?.developing ?? developing.length)} />
+          <Metric label="Watch" value={String(data.summary?.watch ?? data.watch.length)} />
+          <Metric label="Blocked" value={String(data.summary?.blocked ?? blocked.length)} />
+          <Metric label="Exits" value={String(data.exitAlerts.length)} />
+        </div>
+      </Card>
+
+      {!hasActionable ? (
+        <Card className="space-y-2">
+          <p className="text-sm font-semibold">NO TRADE TODAY</p>
+          <p className="text-xs text-muted">WAITING FOR CONFIRMATION</p>
+          <p className="text-xs text-muted">
             {data.message ??
-              "Developing setups may still appear below — they are not buy/sell instructions."}
+              "No CONFIRMED/STRONG + ELIGIBLE setup with valid levels. This is a valid outcome."}
           </p>
+          {data.blockerAggregate ? (
+            <p className="text-[11px] text-muted">
+              Top blockers — trend {data.blockerAggregate.trendBlocked}, momentum{" "}
+              {data.blockerAggregate.momentumBlocked}, EMA {data.blockerAggregate.emaBlocked},
+              MACD {data.blockerAggregate.macdBlocked}
+              {typeof data.blockerAggregate.riskRewardBlocked === "number"
+                ? `, R:R ${data.blockerAggregate.riskRewardBlocked}`
+                : ""}
+              , data {data.blockerAggregate.insufficientData}.
+            </p>
+          ) : null}
         </Card>
       ) : null}
 
-      {data.boardState === "DATA_INSUFFICIENT" ? (
-        <Card>
-          <p className="text-sm font-semibold">DATA INSUFFICIENT</p>
-          <p className="mt-1 text-xs text-muted">
-            {data.message ??
-              "No usable LIVE/CACHED scan results for this UTC day."}
-          </p>
-        </Card>
-      ) : null}
-
-      {data.blockerAggregate &&
-      (data.boardState === "WATCH_ONLY" || data.boardState === "NO_TRADE") ? (
-        <Card>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
-            Signal blockers
-          </p>
-          <p className="mt-1 text-[11px] text-muted">
-            Trend {data.blockerAggregate.trendBlocked}, momentum{" "}
-            {data.blockerAggregate.momentumBlocked}, EMA {data.blockerAggregate.emaBlocked},
-            MACD {data.blockerAggregate.macdBlocked}
-          </p>
-        </Card>
-      ) : null}
-
-      <BestBlock
-        title="Best stock"
-        item={data.bestStock}
-        emptyReason={data.whyNoBestStock}
-      />
-      <BestBlock
-        title="Best crypto"
-        item={data.bestCrypto}
-        emptyReason={data.whyNoBestCrypto}
-      />
-
-      {rankedPreview.length > 0 ? (
-        <section className="space-y-2">
-          <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-            Ranked board
-          </h3>
-          <div className="grid gap-3">
-            {rankedPreview.map((item, index) => (
-              <CandidateCard
-                key={`rank-${item.symbol}-${item.quality}`}
-                item={item}
-                rank={index + 1}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SignalCard
+          title="Best stock"
+          item={data.bestStock}
+          emptyReason={data.whyNoBestStock}
+        />
+        <SignalCard
+          title="Best crypto"
+          item={data.bestCrypto}
+          emptyReason={data.whyNoBestCrypto}
+        />
+      </div>
 
       <section className="space-y-2">
         <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
@@ -438,12 +406,24 @@ export function OpportunitiesWorkspace() {
         </h3>
         {developing.length === 0 ? (
           <Card>
-            <p className="text-sm text-muted">No developing setups waiting for confirmation.</p>
+            <p className="text-sm text-muted">No developing setups.</p>
           </Card>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {developing.map((item) => (
-              <CandidateCard key={`dev-${item.symbol}`} item={item} />
+              <Card key={`dev-${item.symbol}`} className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-semibold">{item.symbol}</span>
+                  <Badge tone="warning">EARLY_SETUP</Badge>
+                  <Badge tone="neutral">WAIT FOR CONFIRMATION</Badge>
+                </div>
+                <p className="text-xs text-muted">
+                  {(item.waitingFor.length > 0
+                    ? item.waitingFor
+                    : ["Confirmation incomplete"]
+                  ).join(" · ")}
+                </p>
+              </Card>
             ))}
           </div>
         )}
@@ -455,14 +435,33 @@ export function OpportunitiesWorkspace() {
         </h3>
         {blocked.length === 0 ? (
           <Card>
-            <p className="text-sm text-muted">
-              No blocked setups (technical confirmation with a failed final gate).
-            </p>
+            <p className="text-sm text-muted">No blocked setups.</p>
           </Card>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {blocked.map((item) => (
-              <CandidateCard key={`blocked-${item.symbol}`} item={item} />
+              <Card key={`blk-${item.symbol}`} className="space-y-2 border-warning/30">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-semibold">{item.symbol}</span>
+                  <Badge tone="accent">{item.confirmation ?? "STRONG"}</Badge>
+                  <Badge tone="warning">BLOCKED</Badge>
+                  <Badge
+                    tone={
+                      item.direction === "SHORT"
+                        ? "negative"
+                        : item.direction === "LONG"
+                          ? "positive"
+                          : "neutral"
+                    }
+                  >
+                    {item.direction}
+                  </Badge>
+                </div>
+                <p className="text-xs font-medium">DO NOT ENTER</p>
+                <p className="text-[11px] text-muted">
+                  Reason: {item.blockReason ?? "Final trade gate failed"}
+                </p>
+              </Card>
             ))}
           </div>
         )}
@@ -477,9 +476,22 @@ export function OpportunitiesWorkspace() {
             <p className="text-sm text-muted">No watchlist candidates.</p>
           </Card>
         ) : (
-          <div className="grid gap-3">
-            {data.watch.map((item) => (
-              <CandidateCard key={`watch-${item.symbol}`} item={item} />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {data.watch.slice(0, 8).map((item) => (
+              <Card key={`w-${item.symbol}`} className="space-y-1 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-sm font-semibold">{item.symbol}</span>
+                  <Badge tone="neutral">WATCH</Badge>
+                  <span className="font-mono text-[11px] text-muted">
+                    {item.opportunityScore.toFixed(0)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted">
+                  {item.confirmationDetail
+                    ? `${item.confirmationDetail.trend} · ${item.confirmationDetail.momentum} · EMA ${item.confirmationDetail.ema} · MACD ${item.confirmationDetail.macd}`
+                    : item.waitingFor[0] ?? item.thesis}
+                </p>
+              </Card>
             ))}
           </div>
         )}
@@ -491,7 +503,7 @@ export function OpportunitiesWorkspace() {
         </h3>
         {data.exitAlerts.length === 0 ? (
           <Card>
-            <p className="text-sm text-muted">No open-position exit alerts right now.</p>
+            <p className="text-sm text-muted">No open-position exit alerts.</p>
             {data.schedulerNote ? (
               <p className="mt-2 text-[11px] text-muted">{data.schedulerNote}</p>
             ) : null}
@@ -499,7 +511,11 @@ export function OpportunitiesWorkspace() {
         ) : (
           <div className="grid gap-2">
             {data.exitAlerts.map((alert) => {
-              const action = alert.exitAction ?? alert.evaluation?.state ?? "HOLD";
+              const label =
+                alert.exitActionLabel ??
+                alert.exitAction ??
+                alert.evaluation?.state ??
+                "HOLD";
               const urgency =
                 alert.exitUrgency ?? alert.evaluation?.urgency ?? "HOLD";
               const pnl =
@@ -520,36 +536,32 @@ export function OpportunitiesWorkspace() {
                             : "neutral"
                       }
                     >
-                      {action}
+                      {label}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                    <div>
-                      <p className="text-[10px] uppercase text-muted">Price / Entry</p>
-                      <p className="font-mono">
-                        {formatPrice(alert.currentPrice)} / {formatPrice(alert.entryPrice)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted">Stop / TP1 / TP2</p>
-                      <p className="font-mono">
-                        {formatPrice(alert.stopLoss)} / {formatPrice(alert.takeProfit1)} /{" "}
-                        {formatPrice(alert.takeProfit2)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted">P/L</p>
-                      <p className="font-mono">
-                        {pnl !== null ? `${pnl.toFixed(2)}%` : "—"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted">Reason</p>
-                      <p className="text-xs">
-                        {alert.exitReason ?? alert.evaluation?.reasons[0] ?? "—"}
-                      </p>
-                    </div>
+                    <Metric
+                      label="Price / Entry"
+                      value={`${formatPrice(alert.currentPrice)} / ${formatPrice(alert.entryPrice)}`}
+                    />
+                    <Metric
+                      label="Stop / TP1 / TP2"
+                      value={`${formatPrice(alert.stopLoss)} / ${formatPrice(alert.takeProfit1)} / ${formatPrice(alert.takeProfit2)}`}
+                    />
+                    <Metric
+                      label="P/L"
+                      value={pnl !== null ? `${pnl.toFixed(2)}%` : "—"}
+                    />
+                    <Metric
+                      label="Last checked"
+                      value={new Date(
+                        alert.lastChecked ?? alert.evaluatedAt,
+                      ).toLocaleString()}
+                    />
                   </div>
+                  <p className="text-[11px] text-muted">
+                    {alert.exitReason ?? alert.evaluation?.reasons[0] ?? "—"}
+                  </p>
                 </Card>
               );
             })}
@@ -567,7 +579,7 @@ export function OpportunitiesWorkspace() {
         </Link>
         {" · "}
         <Link href="/positions" className="text-accent hover:underline">
-          Paper positions
+          Paper Positions
         </Link>
       </p>
     </div>

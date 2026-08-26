@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/states/empty-state";
@@ -14,6 +14,20 @@ import {
   formatPaperQuantity,
   pnlClass,
 } from "@/services/paper/view-model";
+
+type ExitRow = {
+  positionId: string;
+  symbol: string;
+  exitAction?: string;
+  exitActionLabel?: string;
+  exitUrgency?: string;
+  takeProfit1?: number | null;
+  takeProfit2?: number | null;
+  lastChecked?: string;
+  evaluatedAt?: string;
+  exitReason?: string;
+  dataFreshnessNote?: string;
+};
 
 type Props = {
   initial: PaperAccountSnapshot;
@@ -37,15 +51,69 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
+function urgencyTone(
+  urgency: string | undefined,
+): "positive" | "negative" | "warning" | "accent" | "neutral" {
+  switch (urgency) {
+    case "URGENT_EXIT":
+      return "negative";
+    case "TAKE_PROFIT":
+      return "positive";
+    case "WATCH":
+      return "warning";
+    case "HOLD":
+      return "accent";
+    default:
+      return "neutral";
+  }
+}
+
 export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
   const [account, setAccount] = useState(initial);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exits, setExits] = useState<ExitRow[]>([]);
+  const [exitNote, setExitNote] = useState<string | null>(null);
+  const [exitsLoadedAt, setExitsLoadedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/opportunities/exits");
+        const payload = (await response.json().catch(() => null)) as {
+          exits?: ExitRow[];
+          schedulerNote?: string;
+          evaluatedAt?: string;
+          dataFreshEnoughForIntraday?: boolean;
+        } | null;
+        if (cancelled || !response.ok || !payload) return;
+        setExits(payload.exits ?? []);
+        setExitsLoadedAt(payload.evaluatedAt ?? new Date().toISOString());
+        setExitNote(
+          payload.dataFreshEnoughForIntraday === false
+            ? "DATA NOT FRESH ENOUGH FOR INTRADAY EXIT DECISION — showing LAST CHECKED only."
+            : (payload.schedulerNote ?? null),
+        );
+      } catch {
+        /* keep positions usable without exit overlay */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account.openPositions.length]);
+
+  const exitById = useMemo(() => {
+    const map = new Map<string, ExitRow>();
+    for (const row of exits) map.set(row.positionId, row);
+    return map;
+  }, [exits]);
 
   async function onClose(positionId: string) {
     const confirmed = window.confirm(
-      "Close this paper position at the current market price?",
+      "Close this PAPER position at the current market price? This is not a broker order.",
     );
     if (!confirmed) return;
 
@@ -65,7 +133,7 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
         return;
       }
       setAccount(payload.account);
-      setFeedback("Position closed.");
+      setFeedback("PAPER position closed.");
     } catch {
       setError("Position could not be closed.");
     } finally {
@@ -79,22 +147,19 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
-              Paper Trading
+              Paper Positions
             </p>
             <h2 className="mt-1 text-xl font-semibold tracking-tight">
               Simulated Account
             </h2>
           </div>
-          <Badge tone="warning">SIMULATION ONLY — NO REAL ORDERS</Badge>
+          <Badge tone="warning">PAPER TRADE — NO REAL ORDERS</Badge>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Total Equity" value={formatPaperMoney(account.equity)} />
           <Metric label="Cash" value={formatPaperMoney(account.cashBalance)} />
-          <Metric
-            label="Invested"
-            value={formatPaperMoney(account.invested)}
-          />
+          <Metric label="Invested" value={formatPaperMoney(account.invested)} />
           <Metric
             label="Unrealized P&L"
             value={formatPaperMoney(account.unrealizedPnL, { signed: true })}
@@ -125,6 +190,17 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
             </p>
           </div>
         </div>
+
+        {exitNote ? (
+          <p className="text-[11px] text-muted">{exitNote}</p>
+        ) : null}
+        {exitsLoadedAt ? (
+          <p className="font-mono text-[10px] text-muted">
+            LAST CHECKED (exit monitor):{" "}
+            {new Date(exitsLoadedAt).toLocaleString("en-GB")} — not continuous LIVE
+            monitoring on Hobby cron.
+          </p>
+        ) : null}
       </header>
 
       {feedback ? (
@@ -143,12 +219,12 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
 
       <section className="space-y-3">
         <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-          Open Positions
+          Open PAPER Positions
         </h3>
         {account.openPositions.length === 0 ? (
           <EmptyState
             title="NO OPEN POSITIONS"
-            description="Open a paper trade from a valid Trading Setup on a market symbol page."
+            description="Open a PAPER trade from a CONFIRMED/STRONG + ELIGIBLE setup on a market symbol page."
           />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
@@ -157,68 +233,107 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
                 <tr>
                   <th className="px-3 py-2 font-medium">Asset</th>
                   <th className="px-3 py-2 font-medium">Side</th>
-                  <th className="px-3 py-2 font-medium">Quantity</th>
                   <th className="px-3 py-2 font-medium">Entry</th>
                   <th className="px-3 py-2 font-medium">Current</th>
+                  <th className="px-3 py-2 font-medium">P/L</th>
+                  <th className="px-3 py-2 font-medium">P/L %</th>
                   <th className="px-3 py-2 font-medium">Stop</th>
-                  <th className="px-3 py-2 font-medium">Target</th>
-                  <th className="px-3 py-2 font-medium">Market Value</th>
-                  <th className="px-3 py-2 font-medium">Unrealized P&L</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">TP1</th>
+                  <th className="px-3 py-2 font-medium">TP2</th>
+                  <th className="px-3 py-2 font-medium">Exit status</th>
+                  <th className="px-3 py-2 font-medium">Last checked</th>
                   <th className="px-3 py-2 font-medium">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {account.openPositions.map((position) => (
-                  <tr
-                    key={position.id}
-                    className="border-b border-border/70 last:border-0"
-                  >
-                    <td className="px-3 py-2 font-medium">{position.symbol}</td>
-                    <td className="px-3 py-2">{position.side}</td>
-                    <td className="px-3 py-2 font-mono">
-                      {formatPaperQuantity(position.quantity)}
-                    </td>
-                    <td className="px-3 py-2 font-mono">
-                      {formatPaperMoney(position.entryPrice)}
-                    </td>
-                    <td className="px-3 py-2 font-mono">
-                      {position.currentPrice === null
-                        ? "Unavailable"
-                        : formatPaperMoney(position.currentPrice)}
-                    </td>
-                    <td className="px-3 py-2 font-mono">
-                      {position.stopLoss === null
-                        ? "—"
-                        : formatPaperMoney(position.stopLoss)}
-                    </td>
-                    <td className="px-3 py-2 font-mono">
-                      {position.takeProfit === null
-                        ? "—"
-                        : formatPaperMoney(position.takeProfit)}
-                    </td>
-                    <td className="px-3 py-2 font-mono">
-                      {formatPaperMoney(position.marketValue)}
-                    </td>
-                    <td className={pnlClass(position.unrealizedPnL)}>
-                      {formatPaperMoney(position.unrealizedPnL, { signed: true })}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusDot status={position.dataStatus} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-9 px-2 text-xs"
-                        disabled={busyId === position.id}
-                        onClick={() => void onClose(position.id)}
-                      >
-                        Close
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {account.openPositions.map((position) => {
+                  const exit = exitById.get(position.id);
+                  const tp1 =
+                    exit?.takeProfit1 ?? position.takeProfit ?? null;
+                  const tp2 = exit?.takeProfit2 ?? null;
+                  return (
+                    <tr
+                      key={position.id}
+                      className="border-b border-border/70 last:border-0"
+                    >
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/market/${encodeURIComponent(position.symbol)}`}
+                          className="font-medium hover:text-accent"
+                        >
+                          {position.symbol}
+                        </Link>
+                        <p className="font-mono text-[10px] text-muted">
+                          Qty {formatPaperQuantity(position.quantity)}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2">{position.side}</td>
+                      <td className="px-3 py-2 font-mono">
+                        {formatPaperMoney(position.entryPrice)}
+                      </td>
+                      <td className="px-3 py-2 font-mono">
+                        {position.currentPrice === null
+                          ? "Unavailable"
+                          : formatPaperMoney(position.currentPrice)}
+                      </td>
+                      <td className={pnlClass(position.unrealizedPnL)}>
+                        {formatPaperMoney(position.unrealizedPnL, {
+                          signed: true,
+                        })}
+                      </td>
+                      <td className={pnlClass(position.unrealizedPnLPercent)}>
+                        {formatPaperPercent(position.unrealizedPnLPercent, {
+                          signed: true,
+                        })}
+                      </td>
+                      <td className="px-3 py-2 font-mono">
+                        {position.stopLoss === null
+                          ? "—"
+                          : formatPaperMoney(position.stopLoss)}
+                      </td>
+                      <td className="px-3 py-2 font-mono">
+                        {tp1 === null ? "—" : formatPaperMoney(tp1)}
+                      </td>
+                      <td className="px-3 py-2 font-mono">
+                        {tp2 === null ? "—" : formatPaperMoney(tp2)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {exit ? (
+                          <div className="space-y-1">
+                            <Badge tone={urgencyTone(exit.exitUrgency)}>
+                              {exit.exitActionLabel ?? exit.exitAction ?? "—"}
+                            </Badge>
+                            {exit.exitReason ? (
+                              <p className="max-w-[12rem] text-[10px] text-muted">
+                                {exit.exitReason}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted">Pending check</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[10px] text-muted">
+                        {exit?.lastChecked || exit?.evaluatedAt
+                          ? new Date(
+                              exit.lastChecked ?? exit.evaluatedAt!,
+                            ).toLocaleString("en-GB")
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-9 px-2 text-xs"
+                          disabled={busyId === position.id}
+                          onClick={() => void onClose(position.id)}
+                        >
+                          Close PAPER
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -308,6 +423,14 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
           </div>
         )}
       </section>
+
+      <p className="text-xs text-muted">
+        <Link href="/opportunities" className="text-accent hover:underline">
+          Today&apos;s trading signal
+        </Link>
+        {" · "}
+        PAPER only — exit status from runExitMonitor(), not broker execution.
+      </p>
     </div>
   );
 }

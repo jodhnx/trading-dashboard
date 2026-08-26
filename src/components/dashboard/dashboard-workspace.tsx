@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { DailyDecisionCard } from "@/components/dashboard/daily-decision-card";
 import { MarketOverview } from "@/components/dashboard/market-overview";
 import { TopOpportunities } from "@/components/dashboard/top-opportunities";
+import { TradingSignalsPanel } from "@/components/dashboard/trading-signals-panel";
 import { Watchlist } from "@/components/dashboard/watchlist";
 import { NoTradeAssets } from "@/components/dashboard/no-trade-assets";
 import { ImportantNews } from "@/components/dashboard/important-news";
@@ -44,6 +45,10 @@ export function DashboardWorkspace({ result }: { result: DashboardLoadResult }) 
             <span className="ml-2 text-sm font-normal text-muted">UTC</span>
           </h2>
         </div>
+        <TradingSignalsPanel
+          bestStock={result.bestStock}
+          bestCrypto={result.bestCrypto}
+        />
         <EmptyState
           title="NO DAILY BRIEF YET"
           description="Generate today’s Daily Brief from the Daily Brief page. The dashboard will not invent content or call providers on load."
@@ -63,6 +68,10 @@ export function DashboardWorkspace({ result }: { result: DashboardLoadResult }) 
   return (
     <div className="space-y-5">
       <DashboardHeader model={model} />
+      <TradingSignalsPanel
+        bestStock={result.bestStock}
+        bestCrypto={result.bestCrypto}
+      />
       <DailyDecisionCard model={model} />
       <MarketOverview items={model.marketOverview} />
       <TopOpportunities opportunities={model.opportunities} />
@@ -77,11 +86,15 @@ export function DashboardWorkspace({ result }: { result: DashboardLoadResult }) 
       <BriefHistory items={model.history} />
       <DataFreshness model={model} />
       <p className="text-xs text-muted">
-        <Link href="/daily-brief" className="text-accent hover:underline">
-          Open full Daily Brief
+        <Link href="/opportunities" className="text-accent hover:underline">
+          Open Opportunities
         </Link>
         {" · "}
-        Stored-first — no OpenAI, NewsAPI, or Twelve Data on this page load.
+        <Link href="/positions" className="text-accent hover:underline">
+          Paper Positions
+        </Link>
+        {" · "}
+        Stored-first — no provider invent on this page load.
       </p>
     </div>
   );

@@ -295,6 +295,7 @@ describe("phase22 ranking", () => {
       entry: 100,
       stopLoss: 95,
       takeProfit1: 110,
+      takeProfit2: 115,
       riskReward: 2,
       scores: {
         ...baseRanked({ symbol: "x", quality: "WATCH" }).scores,
@@ -314,6 +315,7 @@ describe("phase22 ranking", () => {
       entry: 100,
       stopLoss: 95,
       takeProfit1: 110,
+      takeProfit2: 115,
       riskReward: 2,
     });
     const crypto = baseRanked({
@@ -323,6 +325,7 @@ describe("phase22 ranking", () => {
       entry: 100,
       stopLoss: 95,
       takeProfit1: 110,
+      takeProfit2: 120,
       riskReward: 2.5,
       scores: {
         ...baseRanked({ symbol: "x", quality: "WATCH" }).scores,

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { RELEASE_PHASE, APP_VERSION } from "@/lib/release";
 import { opportunityScoreWeightsSum, OPPORTUNITY_SCORE_WEIGHTS } from "./types";
 import { emptyMtfAlignment } from "./mtf";
 import { liveSnapshot } from "@/ai/test-fixtures";
@@ -9,11 +8,6 @@ import { TEST_SETTINGS } from "@/ai/test-fixtures";
 import { evaluateSetupConfirmation } from "@/engine/trading/confirmation";
 
 describe("phase23 release readiness", () => {
-  it("centralizes release phase at 23", () => {
-    expect(RELEASE_PHASE).toBe(23);
-    expect(APP_VERSION).toMatch(/^0\.23/);
-  });
-
   it("keeps opportunity weights at exactly 100", () => {
     expect(opportunityScoreWeightsSum()).toBe(100);
     expect(OPPORTUNITY_SCORE_WEIGHTS.multiTimeFrame).toBe(10);

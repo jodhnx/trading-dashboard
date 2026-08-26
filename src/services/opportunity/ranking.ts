@@ -1,5 +1,6 @@
 import type { RankedOpportunity, SignalQuality } from "./types";
 import { isHighConfidenceQuality, qualityRank } from "./quality";
+import { isActionableOpportunity } from "./actionable";
 
 export function compareOpportunityRank(
   a: RankedOpportunity,
@@ -12,12 +13,15 @@ export function compareOpportunityRank(
   return a.symbol.localeCompare(b.symbol);
 }
 
-/** bestStock / bestCrypto — CONFIRMED or STRONG only (never force a trade). */
+/**
+ * bestStock / bestCrypto — CONFIRMED|STRONG + ELIGIBLE + valid levels + freshness.
+ * Never substitutes WATCH / EARLY_SETUP / BLOCKED.
+ */
 export function selectBestOpportunity(
   candidates: RankedOpportunity[],
 ): RankedOpportunity | null {
   const eligible = candidates
-    .filter((item) => isHighConfidenceQuality(item.quality))
+    .filter((item) => isActionableOpportunity(item))
     .sort(compareOpportunityRank);
   return eligible[0] ?? null;
 }
@@ -38,7 +42,10 @@ export function partitionByQuality(candidates: RankedOpportunity[]): {
   for (const item of [...candidates].sort(compareOpportunityRank)) {
     if (item.tradeStatus === "BLOCKED") {
       blocked.push(item);
-    } else if (item.quality === "STRONG" || item.quality === "CONFIRMED") {
+    } else if (
+      isHighConfidenceQuality(item.quality) &&
+      item.tradeStatus === "ELIGIBLE"
+    ) {
       bestEligible.push(item);
     } else if (item.quality === "EARLY_SETUP") {
       developing.push(item);
@@ -58,17 +65,25 @@ export function whyNoBest(input: {
   liveOrCached: number;
 }): string {
   if (input.liveOrCached === 0) {
-    return `DATA_INSUFFICIENT — no usable LIVE/CACHED ${input.assetClass.toLowerCase()} technicals.`;
+    return `DATA_INSUFFICIENT — no usable LIVE/CACHED ${input.assetClass.toLowerCase()} technicals. WAIT.`;
   }
+  const actionable = input.candidates.filter((c) => isActionableOpportunity(c));
+  if (actionable.length > 0) {
+    return "";
+  }
+  const blocked = input.candidates.filter((c) => c.tradeStatus === "BLOCKED");
   const developing = input.candidates.filter((c) => c.quality === "EARLY_SETUP");
   const watch = input.candidates.filter((c) => c.quality === "WATCH");
-  if (developing.length === 0 && watch.length === 0) {
-    return `No high-confidence ${input.assetClass.toLowerCase()} opportunity currently — evidence is weak or contradictory.`;
+  if (blocked.length > 0) {
+    return `NO CONFIRMED ${input.assetClass} SETUP — ${blocked.length} blocked by final gates (e.g. R:R). WAIT.`;
   }
   if (developing.length > 0) {
-    return `No CONFIRMED/STRONG ${input.assetClass.toLowerCase()} setup — ${developing.length} developing setup(s) waiting for confirmation.`;
+    return `NO CONFIRMED ${input.assetClass} SETUP — ${developing.length} developing (wait for confirmation).`;
   }
-  return `No high-confidence ${input.assetClass.toLowerCase()} opportunity currently — watchlist only.`;
+  if (watch.length > 0) {
+    return `NO CONFIRMED ${input.assetClass} SETUP — watchlist only. WAIT.`;
+  }
+  return `NO CONFIRMED ${input.assetClass} SETUP — WAIT — no candidate meets all trading requirements.`;
 }
 
 export function qualityLabel(quality: SignalQuality): string {

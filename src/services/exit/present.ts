@@ -1,7 +1,30 @@
 import type { PositionExitAlert } from "./monitor";
 
+export function exitActionLabel(state: string): string {
+  switch (state) {
+    case "HOLD":
+      return "HOLD";
+    case "HOLD_STRONG":
+      return "HOLD";
+    case "PARTIAL_TAKE_PROFIT":
+      return "TAKE PARTIAL PROFIT";
+    case "TAKE_PROFIT":
+      return "TAKE PROFIT";
+    case "STOP_LOSS":
+      return "STOP LOSS";
+    case "THESIS_INVALIDATED":
+      return "THESIS INVALIDATED";
+    case "EXIT":
+      return "EXIT";
+    case "WATCH":
+      return "WATCH";
+    default:
+      return state;
+  }
+}
+
 /**
- * Stable exit API payload — never fabricates currentPrice (caller must supply real quotes).
+ * Stable exit API payload — never fabricates currentPrice.
  */
 export function toExitCandidate(alert: PositionExitAlert) {
   const unrealizedPct = alert.evaluation.unrealizedPnLPercent;
@@ -31,6 +54,7 @@ export function toExitCandidate(alert: PositionExitAlert) {
     symbol: alert.symbol,
     side: alert.side,
     exitAction: alert.evaluation.state,
+    exitActionLabel: exitActionLabel(alert.evaluation.state),
     exitUrgency: alert.evaluation.urgency,
     currentPrice: alert.currentPrice,
     entryPrice: alert.entryPrice,
@@ -46,6 +70,9 @@ export function toExitCandidate(alert: PositionExitAlert) {
     takeProfit2: alert.takeProfit2,
     trailingStop: alert.evaluation.trailingStop,
     evaluatedAt: alert.evaluatedAt,
+    lastChecked: alert.evaluatedAt,
+    dataFreshnessNote:
+      "LAST CHECKED from provider quote at evaluation time — not continuous real-time on Hobby cron.",
   };
 }
 

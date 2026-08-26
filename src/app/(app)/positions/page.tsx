@@ -25,7 +25,7 @@ export default async function PositionsPage() {
   if (!result.ok) {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Paper Trading</h2>
+        <h2 className="text-lg font-semibold tracking-tight">Paper Positions</h2>
         <ErrorState
           title="Unable to load paper account."
           description={result.error}

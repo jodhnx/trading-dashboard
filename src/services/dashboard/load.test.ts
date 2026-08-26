@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 const getAuthUser = vi.fn();
 const findBriefByDate = vi.fn();
 const listBriefHistory = vi.fn();
+const listStoredOpportunities = vi.fn();
 
 vi.mock("@/lib/auth/session", () => ({
   getAuthUser: () => getAuthUser(),
@@ -16,6 +17,11 @@ vi.mock("@/services/daily-brief", () => ({
   utcBriefDate: () => "2026-08-25",
 }));
 
+vi.mock("@/services/opportunity/persistence", () => ({
+  listStoredOpportunities: (...args: unknown[]) =>
+    listStoredOpportunities(...args),
+}));
+
 import { loadDashboard } from "./load";
 
 describe("loadDashboard", () => {
@@ -23,6 +29,8 @@ describe("loadDashboard", () => {
     getAuthUser.mockReset();
     findBriefByDate.mockReset();
     listBriefHistory.mockReset();
+    listStoredOpportunities.mockReset();
+    listStoredOpportunities.mockResolvedValue([]);
   });
 
   it("requires authentication", async () => {
@@ -39,6 +47,8 @@ describe("loadDashboard", () => {
     expect(result.status).toBe("empty");
     if (result.status === "empty") {
       expect(result.today).toBe("2026-08-25");
+      expect(result.bestStock).toBeNull();
+      expect(result.bestCrypto).toBeNull();
     }
   });
 
@@ -85,6 +95,8 @@ describe("loadDashboard", () => {
     if (result.status === "ok") {
       expect(result.model.decisionStatus).toBe("NO_TRADE");
       expect(result.model.decisionDetail).toBe("Trend is neutral");
+      expect(result.bestStock).toBeNull();
+      expect(result.bestCrypto).toBeNull();
     }
   });
 
