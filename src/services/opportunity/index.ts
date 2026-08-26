@@ -9,6 +9,8 @@ export {
   describeWaitingFor,
   isDataQualityRejection,
 } from "./score";
+export { classifySignalQuality, toDataFreshness } from "./quality";
+export { selectBestOpportunity, compareOpportunityRank } from "./ranking";
 export { evaluateExitState } from "@/services/exit/engine";
 export {
   findFirstDirectionBlocker,
@@ -19,4 +21,7 @@ export type {
   OpportunityScanSummary,
   OpportunityTier,
   MarketRegime,
+  SignalQuality,
+  DataFreshness,
 } from "./types";
+export { SCHEDULER_NOTE } from "./types";

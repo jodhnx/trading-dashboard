@@ -104,6 +104,10 @@ export function computeOpportunityScore(input: {
   catalystScore: number;
   sentimentScore: number;
   marketRegime: MarketRegime;
+  /** 0–100 MTF alignment; default 50 when frames unavailable (neutral, not fabricated). */
+  multiTimeframeScore?: number;
+  /** Multiply final score for non-LIVE freshness (cached still ranks, confidence reduced). */
+  freshnessFactor?: number;
 }): OpportunityScoreBreakdown {
   const technicalScore = clamp(input.technicalBreakdown.total);
   const momentumScore = clamp(input.technicalBreakdown.momentum);
@@ -119,8 +123,14 @@ export function computeOpportunityScore(input: {
     ),
   );
   const rrScore = riskRewardScore(input.setup.riskReward);
+  const multiTimeframeScore = clamp(input.multiTimeframeScore ?? 50);
+  const freshnessFactor =
+    typeof input.freshnessFactor === "number" &&
+    Number.isFinite(input.freshnessFactor)
+      ? Math.min(1, Math.max(0, input.freshnessFactor))
+      : 1;
 
-  const opportunityScore = clamp(
+  const blended = clamp(
     (OPPORTUNITY_SCORE_WEIGHTS.technical * technicalScore +
       OPPORTUNITY_SCORE_WEIGHTS.momentum * momentumScore +
       OPPORTUNITY_SCORE_WEIGHTS.volume * volumeScore +
@@ -128,7 +138,8 @@ export function computeOpportunityScore(input: {
       OPPORTUNITY_SCORE_WEIGHTS.catalyst * catalystScore +
       OPPORTUNITY_SCORE_WEIGHTS.sentiment * sentimentScore +
       OPPORTUNITY_SCORE_WEIGHTS.marketRegime * marketRegimeScore +
-      OPPORTUNITY_SCORE_WEIGHTS.riskReward * rrScore) /
+      OPPORTUNITY_SCORE_WEIGHTS.riskReward * rrScore +
+      OPPORTUNITY_SCORE_WEIGHTS.multiTimeframe * multiTimeframeScore) /
       weightTotal(),
   );
 
@@ -141,7 +152,8 @@ export function computeOpportunityScore(input: {
     sentimentScore,
     marketRegimeScore,
     riskRewardScore: rrScore,
-    opportunityScore,
+    multiTimeframeScore,
+    opportunityScore: clamp(blended * freshnessFactor),
     weights: OPPORTUNITY_SCORE_WEIGHTS,
   };
 }

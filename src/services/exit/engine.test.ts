@@ -39,16 +39,28 @@ describe("evaluateExitState", () => {
     expect(result.state).toBe("HOLD");
   });
 
-  it("marks thesis invalidation as urgent exit", () => {
+  it("returns TAKE_PROFIT at TP2", () => {
     const result = evaluateExitState({
       side: "LONG",
       entryPrice: 100,
-      currentPrice: 101,
+      currentPrice: 121,
       stopLoss: 95,
       takeProfit: 110,
-      thesisInvalidated: true,
+      takeProfit2: 120,
     });
-    expect(result.state).toBe("THESIS_INVALIDATED");
-    expect(result.urgency).toBe("URGENT_EXIT");
+    expect(result.state).toBe("TAKE_PROFIT");
+  });
+
+  it("returns HOLD_STRONG with aligned gains", () => {
+    const result = evaluateExitState({
+      side: "LONG",
+      entryPrice: 100,
+      currentPrice: 105,
+      stopLoss: 95,
+      takeProfit: 110,
+      trend: "BULLISH",
+      momentum: "POSITIVE",
+    });
+    expect(result.state).toBe("HOLD_STRONG");
   });
 });

@@ -23,8 +23,11 @@ export async function runOpportunityScanForUser(input: {
   const persistable = [
     ...summary.topStocks,
     ...summary.topCrypto,
-    ...summary.all.filter((item) => item.tier === "WATCH").slice(0, 15),
+    ...summary.developing,
+    ...summary.watchList.slice(0, 15),
   ];
+  if (summary.bestStock) persistable.unshift(summary.bestStock);
+  if (summary.bestCrypto) persistable.unshift(summary.bestCrypto);
   const seen = new Set<string>();
   const unique = persistable.filter((item) => {
     if (seen.has(item.symbol)) return false;

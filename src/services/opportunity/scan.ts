@@ -30,13 +30,35 @@ import {
   type SignalAssetDiagnostic,
 } from "./signal-diagnostics";
 import {
+  classifySignalQuality,
+  freshnessConfidenceFactor,
+  toDataFreshness,
+} from "./quality";
+import {
+  emptyMtfAlignment,
+  loadOptionalMtfSnapshots,
+  MTF_ENRICH_LIMIT,
+  scoreMtfAlignment,
+} from "./mtf";
+import {
+  compareOpportunityRank,
+  partitionByQuality,
+  selectBestOpportunity,
+  whyNoBest,
+} from "./ranking";
+import { buildThesis } from "./thesis";
+import {
   TOP_CRYPTO_LIMIT,
   TOP_STOCK_LIMIT,
+  SCHEDULER_NOTE,
+  type FreshnessCounts,
   type MarketRegime,
+  type MtfAlignment,
   type OpportunityCandidateDiagnostic,
   type OpportunityScanSummary,
   type RankedOpportunity,
   type ScanBoardState,
+  type SignalQuality,
 } from "./types";
 
 function isTradeableClass(assetClass: string): boolean {
@@ -45,20 +67,50 @@ function isTradeableClass(assetClass: string): boolean {
 
 function deriveBoardState(input: {
   liveOrCached: number;
-  strong: number;
-  opportunities: number;
-  watch: number;
+  confirmedOrStrong: number;
+  earlyOrWatch: number;
 }): ScanBoardState {
   if (input.liveOrCached === 0) {
     return "DATA_INSUFFICIENT";
   }
-  if (input.strong + input.opportunities > 0) {
+  if (input.confirmedOrStrong > 0) {
     return "OPPORTUNITIES_AVAILABLE";
   }
-  if (input.watch > 0) {
+  if (input.earlyOrWatch > 0) {
     return "WATCH_ONLY";
   }
   return "NO_TRADE";
+}
+
+function dataSkipDiagnostic(input: {
+  symbol: string;
+  assetType: string;
+  quoteStatus: string;
+  technicalStatus: string;
+  reason: string;
+}): OpportunityCandidateDiagnostic {
+  return {
+    symbol: input.symbol,
+    assetType: input.assetType,
+    quoteStatus: input.quoteStatus,
+    technicalStatus: input.technicalStatus,
+    engineStatus: "SKIPPED",
+    engineDirection: "NO_TRADE",
+    engineScore: null,
+    technicalScore: 0,
+    momentumScore: 0,
+    volumeScore: 0,
+    newsScore: 0,
+    catalystScore: 0,
+    sentimentScore: 0,
+    regimeScore: 0,
+    riskRewardScore: 0,
+    multiTimeframeScore: 0,
+    finalOpportunityScore: 0,
+    tier: "DATA_SKIP",
+    quality: "DATA_SKIP",
+    rejectionReason: input.reason,
+  };
 }
 
 type DraftCandidate = {
@@ -68,6 +120,7 @@ type DraftCandidate = {
   snapshot: TechnicalSnapshot;
   newsImpact: ReturnType<typeof scoreNewsForSymbol>;
   quoteStatus: string;
+  mtf: MtfAlignment;
 };
 
 function logSafeDiagnostics(diagnostics: OpportunityCandidateDiagnostic[]): void {
@@ -84,9 +137,10 @@ function logSafeDiagnostics(diagnostics: OpportunityCandidateDiagnostic[]): void
       (d) => d.technicalStatus === "LIVE" || d.technicalStatus === "CACHED",
     ).length,
     actionable: diagnostics.filter(
-      (d) => d.tier === "STRONG_OPPORTUNITY" || d.tier === "OPPORTUNITY",
+      (d) => d.quality === "STRONG" || d.quality === "CONFIRMED",
     ).length,
-    watch: diagnostics.filter((d) => d.tier === "WATCH").length,
+    early: diagnostics.filter((d) => d.quality === "EARLY_SETUP").length,
+    watch: diagnostics.filter((d) => d.quality === "WATCH").length,
     dataSkip: diagnostics.filter((d) => d.tier === "DATA_SKIP").length,
     sample: interesting.slice(0, 12).map((d) => ({
       symbol: d.symbol,
@@ -95,6 +149,7 @@ function logSafeDiagnostics(diagnostics: OpportunityCandidateDiagnostic[]): void
       engineDirection: d.engineDirection,
       engineStatus: d.engineStatus,
       finalOpportunityScore: d.finalOpportunityScore,
+      quality: d.quality,
       tier: d.tier,
       rejectionReason: d.rejectionReason,
     })),
@@ -108,6 +163,210 @@ function providerSkipReason(asset: (typeof OPPORTUNITY_UNIVERSE)[number]): strin
   return null;
 }
 
+function buildFreshnessCounts(
+  diagnostics: OpportunityCandidateDiagnostic[],
+): FreshnessCounts {
+  const skipReasons: Record<string, number> = {};
+  let liveCount = 0;
+  let recentCount = 0;
+  let cachedCount = 0;
+  let staleCount = 0;
+  let unavailableCount = 0;
+  let dataSkippedCount = 0;
+
+  for (const d of diagnostics) {
+    if (d.tier === "DATA_SKIP") {
+      dataSkippedCount += 1;
+      const reason = d.rejectionReason ?? "unknown";
+      skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+      unavailableCount += 1;
+      continue;
+    }
+    const freshness = toDataFreshness(d.technicalStatus);
+    if (freshness === "LIVE") liveCount += 1;
+    else if (freshness === "RECENT") recentCount += 1;
+    else if (freshness === "CACHED") cachedCount += 1;
+    else if (freshness === "STALE") staleCount += 1;
+    else unavailableCount += 1;
+  }
+
+  return {
+    liveCount,
+    recentCount,
+    cachedCount,
+    staleCount,
+    unavailableCount,
+    dataSkippedCount,
+    skipReasons,
+  };
+}
+
+function syncTierWithQuality(
+  quality: SignalQuality,
+  classifiedTier: RankedOpportunity["tier"],
+  opportunityScore: number,
+): RankedOpportunity["tier"] {
+  if (quality === "STRONG") {
+    return opportunityScore >= 80 ? "STRONG_OPPORTUNITY" : "OPPORTUNITY";
+  }
+  if (quality === "CONFIRMED") {
+    return opportunityScore >= 80 ? "STRONG_OPPORTUNITY" : "OPPORTUNITY";
+  }
+  if (quality === "EARLY_SETUP" || quality === "WATCH") {
+    return "WATCH";
+  }
+  if (quality === "DATA_INSUFFICIENT") {
+    return classifiedTier;
+  }
+  return "NO_TRADE";
+}
+
+function finalizeCandidate(input: {
+  draft: DraftCandidate;
+  marketRegime: MarketRegime;
+  newsUnavailable: boolean;
+  scannedAt: string;
+  nowMs: number;
+}): RankedOpportunity {
+  const { draft } = input;
+  const dataFreshness = toDataFreshness(
+    draft.snapshot.dataStatus,
+    draft.snapshot.asOf
+      ? new Date(draft.snapshot.asOf).getTime()
+      : null,
+    input.nowMs,
+  );
+  const scores = computeOpportunityScore({
+    technicalBreakdown: draft.technicalBreakdown,
+    setup: draft.setup,
+    newsScore: draft.newsImpact.newsScore,
+    catalystScore: draft.newsImpact.catalystScore,
+    sentimentScore: draft.newsImpact.sentimentScore,
+    marketRegime: input.marketRegime,
+    multiTimeframeScore: draft.mtf.score,
+    freshnessFactor: freshnessConfidenceFactor(dataFreshness),
+  });
+  const classified = classifyOpportunityTier({
+    setup: draft.setup,
+    opportunityScore: scores.opportunityScore,
+    dataStatus: draft.snapshot.dataStatus,
+    hasTechnicals: snapshotHasTechnicals(draft.snapshot),
+  });
+  const quality = classifySignalQuality({
+    setup: draft.setup,
+    snapshot: draft.snapshot,
+    dataFreshness,
+    mtfAligned: draft.mtf.aligned,
+  });
+  const tier = syncTierWithQuality(
+    quality,
+    classified.tier,
+    scores.opportunityScore,
+  );
+  const entryPlan = deriveEntryPlan({
+    setup: draft.setup,
+    atr14: draft.snapshot.atr14,
+  });
+  const setupType = classifySetupType({
+    snapshot: draft.snapshot,
+    setup: draft.setup,
+    newsScore: draft.newsImpact.newsScore,
+  });
+  const waitingFor = describeWaitingFor({
+    setup: draft.setup,
+    snapshot: draft.snapshot,
+  });
+  const thesis = buildThesis({
+    setup: draft.setup,
+    snapshot: draft.snapshot,
+    quality,
+    newsItems: draft.newsImpact.newsItems,
+    mtf: draft.mtf,
+  });
+
+  const risks: string[] = [...draft.setup.rejectReasons];
+  if (draft.snapshot.dataStatus === "STALE") {
+    risks.push("STALE market data");
+  }
+  if (dataFreshness === "CACHED" || dataFreshness === "RECENT") {
+    risks.push(`${dataFreshness} data — not LIVE`);
+  }
+  if (input.newsUnavailable) {
+    risks.push("NEWS UNAVAILABLE — news score is neutral baseline");
+  }
+  if (quality === "EARLY_SETUP") {
+    risks.push("DEVELOPING SETUP — not a buy/sell instruction");
+  }
+  if (draft.setup.direction === "NO_TRADE" && tier === "WATCH") {
+    risks.push("Waiting for confirmation — no forced entry levels");
+  }
+
+  const hasActionableLevels =
+    (quality === "STRONG" || quality === "CONFIRMED") &&
+    draft.setup.status === "VALID" &&
+    (draft.setup.direction === "LONG" || draft.setup.direction === "SHORT");
+
+  const confidence = Math.round(
+    scores.opportunityScore * freshnessConfidenceFactor(dataFreshness),
+  );
+
+  return {
+    symbol: draft.asset.symbol,
+    name: draft.asset.name,
+    assetClass: draft.asset.assetClass,
+    direction: draft.setup.direction,
+    tier,
+    quality,
+    setupType,
+    holdingHorizon: entryPlan.holdingHorizon,
+    currentPrice: draft.snapshot.currentPrice,
+    atr14: draft.snapshot.atr14,
+    engineScore: draft.setup.score,
+    entry: hasActionableLevels ? draft.setup.entry : null,
+    entryZoneLow: hasActionableLevels ? entryPlan.entryZoneLow : null,
+    entryZoneHigh: hasActionableLevels ? entryPlan.entryZoneHigh : null,
+    maxChase: hasActionableLevels ? entryPlan.maxChase : null,
+    stopLoss: hasActionableLevels ? draft.setup.stopLoss : null,
+    takeProfit1: hasActionableLevels ? draft.setup.takeProfit : null,
+    takeProfit2: hasActionableLevels ? entryPlan.takeProfit2 : null,
+    invalidation: hasActionableLevels ? entryPlan.invalidation : null,
+    riskReward: hasActionableLevels ? draft.setup.riskReward : null,
+    positionSize: hasActionableLevels ? draft.setup.positionSize : null,
+    riskAmount: hasActionableLevels ? draft.setup.riskAmount : null,
+    scores,
+    marketRegime: input.marketRegime,
+    dataStatus: draft.snapshot.dataStatus as RankedOpportunity["dataStatus"],
+    dataFreshness,
+    confidence,
+    thesis,
+    mtf: draft.mtf,
+    reasons: [
+      ...draft.setup.reasons.slice(0, 4),
+      ...draft.technicalBreakdown.reasons.slice(0, 2),
+      ...draft.newsImpact.headlines.slice(0, 1).map((h) => `News: ${h}`),
+    ],
+    risks,
+    waitingFor,
+    newsHeadlines: draft.newsImpact.headlines,
+    newsItems: draft.newsImpact.newsItems,
+    confirmation: draft.setup.confirmation
+      ? {
+          direction: draft.setup.confirmation.direction,
+          confirmation: draft.setup.confirmation.confirmation,
+          trend: draft.setup.confirmation.trend,
+          momentum: draft.setup.confirmation.momentum,
+          ema: draft.setup.confirmation.ema,
+          macd: draft.setup.confirmation.macd,
+          regime: input.marketRegime,
+          atrValid: draft.setup.confirmation.atrValid,
+          rrValid: draft.setup.confirmation.rrValid,
+          explain: draft.setup.confirmation.explain,
+        }
+      : null,
+    scannedAt: input.scannedAt,
+  };
+}
+
 export async function scanDailyOpportunities(input: {
   userId: string;
   email: string | null;
@@ -116,6 +375,7 @@ export async function scanDailyOpportunities(input: {
 }): Promise<OpportunityScanSummary> {
   const now = input.now ?? new Date();
   const scannedAt = now.toISOString();
+  const nowMs = now.getTime();
   const settings = await getOrCreateAccountSettings(input.userId, input.email, {
     persistence: input.persistence,
   });
@@ -147,6 +407,7 @@ export async function scanDailyOpportunities(input: {
   } catch {
     newsItems = [];
   }
+  const newsUnavailable = newsItems.length === 0;
 
   const technicalPool: Array<{
     symbol: string;
@@ -165,26 +426,15 @@ export async function scanDailyOpportunities(input: {
   for (const asset of OPPORTUNITY_UNIVERSE) {
     if (providerRateLimited) {
       unavailable += 1;
-      diagnostics.push({
-        symbol: asset.symbol,
-        assetType: asset.assetClass,
-        quoteStatus: "UNAVAILABLE",
-        technicalStatus: "UNAVAILABLE",
-        engineStatus: "SKIPPED",
-        engineDirection: "NO_TRADE",
-        engineScore: null,
-        technicalScore: 0,
-        momentumScore: 0,
-        volumeScore: 0,
-        newsScore: 0,
-        catalystScore: 0,
-        sentimentScore: 0,
-        regimeScore: 0,
-        riskRewardScore: 0,
-        finalOpportunityScore: 0,
-        tier: "DATA_SKIP",
-        rejectionReason: "provider_rate_limit",
-      });
+      diagnostics.push(
+        dataSkipDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus: "UNAVAILABLE",
+          technicalStatus: "UNAVAILABLE",
+          reason: "provider_rate_limit",
+        }),
+      );
       signalAssets.push(
         buildSignalAssetDiagnostic({
           symbol: asset.symbol,
@@ -214,26 +464,15 @@ export async function scanDailyOpportunities(input: {
     const unmapped = providerSkipReason(asset);
     if (unmapped) {
       unavailable += 1;
-      diagnostics.push({
-        symbol: asset.symbol,
-        assetType: asset.assetClass,
-        quoteStatus: "UNAVAILABLE",
-        technicalStatus: "UNAVAILABLE",
-        engineStatus: "SKIPPED",
-        engineDirection: "NO_TRADE",
-        engineScore: null,
-        technicalScore: 0,
-        momentumScore: 0,
-        volumeScore: 0,
-        newsScore: 0,
-        catalystScore: 0,
-        sentimentScore: 0,
-        regimeScore: 0,
-        riskRewardScore: 0,
-        finalOpportunityScore: 0,
-        tier: "DATA_SKIP",
-        rejectionReason: unmapped,
-      });
+      diagnostics.push(
+        dataSkipDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus: "UNAVAILABLE",
+          technicalStatus: "UNAVAILABLE",
+          reason: unmapped,
+        }),
+      );
       signalAssets.push(
         buildSignalAssetDiagnostic({
           symbol: asset.symbol,
@@ -290,29 +529,18 @@ export async function scanDailyOpportunities(input: {
         technical.snapshot.dataStatus === "MOCK"
       ) {
         unavailable += 1;
-        diagnostics.push({
-          symbol: asset.symbol,
-          assetType: asset.assetClass,
-          quoteStatus,
-          technicalStatus: technical.snapshot.dataStatus,
-          engineStatus: "SKIPPED",
-          engineDirection: "NO_TRADE",
-          engineScore: null,
-          technicalScore: 0,
-          momentumScore: 0,
-          volumeScore: 0,
-          newsScore: 0,
-          catalystScore: 0,
-          sentimentScore: 0,
-          regimeScore: 0,
-          riskRewardScore: 0,
-          finalOpportunityScore: 0,
-          tier: "DATA_SKIP",
-          rejectionReason:
-            technical.snapshot.dataStatus === "MOCK"
-              ? "data_mock"
-              : "data_unavailable",
-        });
+        diagnostics.push(
+          dataSkipDiagnostic({
+            symbol: asset.symbol,
+            assetType: asset.assetClass,
+            quoteStatus,
+            technicalStatus: technical.snapshot.dataStatus,
+            reason:
+              technical.snapshot.dataStatus === "MOCK"
+                ? "data_mock"
+                : "data_unavailable",
+          }),
+        );
         signalAssets.push(
           buildSignalAssetDiagnostic({
             symbol: asset.symbol,
@@ -339,26 +567,15 @@ export async function scanDailyOpportunities(input: {
       }
 
       if (!isTradeableClass(asset.assetClass)) {
-        diagnostics.push({
-          symbol: asset.symbol,
-          assetType: asset.assetClass,
-          quoteStatus,
-          technicalStatus: technical.snapshot.dataStatus,
-          engineStatus: "SKIPPED",
-          engineDirection: "NO_TRADE",
-          engineScore: null,
-          technicalScore: 0,
-          momentumScore: 0,
-          volumeScore: 0,
-          newsScore: 0,
-          catalystScore: 0,
-          sentimentScore: 0,
-          regimeScore: 0,
-          riskRewardScore: 0,
-          finalOpportunityScore: 0,
-          tier: "DATA_SKIP",
-          rejectionReason: "non_tradeable_asset_class",
-        });
+        diagnostics.push(
+          dataSkipDiagnostic({
+            symbol: asset.symbol,
+            assetType: asset.assetClass,
+            quoteStatus,
+            technicalStatus: technical.snapshot.dataStatus,
+            reason: "non_tradeable_asset_class",
+          }),
+        );
         signalAssets.push(
           buildSignalAssetDiagnostic({
             symbol: asset.symbol,
@@ -403,6 +620,7 @@ export async function scanDailyOpportunities(input: {
         snapshot: technical.snapshot,
         newsImpact,
         quoteStatus,
+        mtf: emptyMtfAlignment(technical.snapshot),
       });
     } catch (error) {
       unavailable += 1;
@@ -416,26 +634,15 @@ export async function scanDailyOpportunities(input: {
       if (reason === "provider_rate_limit") {
         providerRateLimited = true;
       }
-      diagnostics.push({
-        symbol: asset.symbol,
-        assetType: asset.assetClass,
-        quoteStatus,
-        technicalStatus: "UNAVAILABLE",
-        engineStatus: "SKIPPED",
-        engineDirection: "NO_TRADE",
-        engineScore: null,
-        technicalScore: 0,
-        momentumScore: 0,
-        volumeScore: 0,
-        newsScore: 0,
-        catalystScore: 0,
-        sentimentScore: 0,
-        regimeScore: 0,
-        riskRewardScore: 0,
-        finalOpportunityScore: 0,
-        tier: "DATA_SKIP",
-        rejectionReason: reason,
-      });
+      diagnostics.push(
+        dataSkipDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus,
+          technicalStatus: "UNAVAILABLE",
+          reason,
+        }),
+      );
       signalAssets.push(
         buildSignalAssetDiagnostic({
           symbol: asset.symbol,
@@ -464,163 +671,139 @@ export async function scanDailyOpportunities(input: {
 
   const marketRegime: MarketRegime = detectMarketRegime(technicalPool);
 
-  const finalized: RankedOpportunity[] = drafts.map((draft) => {
-    const scores = computeOpportunityScore({
-      technicalBreakdown: draft.technicalBreakdown,
-      setup: draft.setup,
-      newsScore: draft.newsImpact.newsScore,
-      catalystScore: draft.newsImpact.catalystScore,
-      sentimentScore: draft.newsImpact.sentimentScore,
+  // Preliminary finalize to pick MTF enrichment targets (rate-limit safe)
+  let preliminary = drafts.map((draft) =>
+    finalizeCandidate({
+      draft,
       marketRegime,
-    });
-    const classified = classifyOpportunityTier({
-      setup: draft.setup,
-      opportunityScore: scores.opportunityScore,
-      dataStatus: draft.snapshot.dataStatus,
-      hasTechnicals: snapshotHasTechnicals(draft.snapshot),
-    });
-    const entryPlan = deriveEntryPlan({
-      setup: draft.setup,
-      atr14: draft.snapshot.atr14,
-    });
-    const setupType = classifySetupType({
-      snapshot: draft.snapshot,
-      setup: draft.setup,
-      newsScore: draft.newsImpact.newsScore,
-    });
-    const waitingFor = describeWaitingFor({
-      setup: draft.setup,
-      snapshot: draft.snapshot,
-    });
+      newsUnavailable,
+      scannedAt,
+      nowMs,
+    }),
+  );
+  const enrichTargets = [...preliminary]
+    .sort(compareOpportunityRank)
+    .filter(
+      (item) =>
+        item.quality === "STRONG" ||
+        item.quality === "CONFIRMED" ||
+        item.quality === "EARLY_SETUP" ||
+        item.quality === "WATCH",
+    )
+    .slice(0, MTF_ENRICH_LIMIT)
+    .map((item) => item.symbol);
 
-    const risks: string[] = [...draft.setup.rejectReasons];
-    if (draft.snapshot.dataStatus === "STALE") {
-      risks.push("STALE market data");
+  if (!providerRateLimited && enrichTargets.length > 0) {
+    for (const symbol of enrichTargets) {
+      const draft = drafts.find((d) => d.asset.symbol === symbol);
+      if (!draft) continue;
+      const mtfResult = await loadOptionalMtfSnapshots({
+        market,
+        symbol,
+        rateLimited: providerRateLimited,
+      });
+      if (mtfResult.rateLimited) {
+        providerRateLimited = true;
+      }
+      const scored = scoreMtfAlignment({
+        daily: draft.snapshot,
+        setup: mtfResult.setup,
+        entry: mtfResult.entry,
+      });
+      draft.mtf = scored.alignment;
+      if (providerRateLimited) break;
     }
-    if (newsItems.length === 0) {
-      risks.push("NEWS UNAVAILABLE — news score is neutral baseline");
-    }
-    if (draft.setup.direction === "NO_TRADE" && classified.tier === "WATCH") {
-      risks.push("Waiting for confirmation — no forced entry levels");
-    }
+    preliminary = drafts.map((draft) =>
+      finalizeCandidate({
+        draft,
+        marketRegime,
+        newsUnavailable,
+        scannedAt,
+        nowMs,
+      }),
+    );
+  }
 
+  const finalized = preliminary;
+
+  // Replace diagnostics for evaluated drafts (skip rows already recorded)
+  for (const item of finalized) {
+    const draft = drafts.find((d) => d.asset.symbol === item.symbol)!;
     diagnostics.push({
-      symbol: draft.asset.symbol,
-      assetType: draft.asset.assetClass,
+      symbol: item.symbol,
+      assetType: item.assetClass,
       quoteStatus: draft.quoteStatus,
-      technicalStatus: draft.snapshot.dataStatus,
+      technicalStatus: item.dataStatus,
       engineStatus: draft.setup.status,
       engineDirection: draft.setup.direction,
       engineScore: draft.setup.score,
-      technicalScore: scores.technicalScore,
-      momentumScore: scores.momentumScore,
-      volumeScore: scores.volumeScore,
-      newsScore: scores.newsScore,
-      catalystScore: scores.catalystScore,
-      sentimentScore: scores.sentimentScore,
-      regimeScore: scores.marketRegimeScore,
-      riskRewardScore: scores.riskRewardScore,
-      finalOpportunityScore: scores.opportunityScore,
-      tier: classified.tier,
-      rejectionReason: classified.rejectionReason,
+      technicalScore: item.scores.technicalScore,
+      momentumScore: item.scores.momentumScore,
+      volumeScore: item.scores.volumeScore,
+      newsScore: item.scores.newsScore,
+      catalystScore: item.scores.catalystScore,
+      sentimentScore: item.scores.sentimentScore,
+      regimeScore: item.scores.marketRegimeScore,
+      riskRewardScore: item.scores.riskRewardScore,
+      multiTimeframeScore: item.scores.multiTimeframeScore,
+      finalOpportunityScore: item.scores.opportunityScore,
+      tier: item.tier,
+      quality: item.quality,
+      rejectionReason: null,
     });
-
     signalAssets.push(
       buildSignalAssetDiagnostic({
-        symbol: draft.asset.symbol,
-        assetType: draft.asset.assetClass,
+        symbol: item.symbol,
+        assetType: item.assetClass,
         quoteStatus: draft.quoteStatus,
         snapshot: draft.snapshot,
         setup: draft.setup,
-        opportunityScore: scores.opportunityScore,
-        tier: classified.tier,
-        rejectionReason: classified.rejectionReason,
+        opportunityScore: item.scores.opportunityScore,
+        tier: item.tier,
+        rejectionReason: null,
       }),
     );
-
-    const hasActionableLevels =
-      draft.setup.status === "VALID" &&
-      (draft.setup.direction === "LONG" || draft.setup.direction === "SHORT");
-
-    return {
-      symbol: draft.asset.symbol,
-      name: draft.asset.name,
-      assetClass: draft.asset.assetClass,
-      direction: draft.setup.direction,
-      tier: classified.tier,
-      setupType,
-      holdingHorizon: entryPlan.holdingHorizon,
-      currentPrice: draft.snapshot.currentPrice,
-      atr14: draft.snapshot.atr14,
-      engineScore: draft.setup.score,
-      entry: hasActionableLevels ? draft.setup.entry : null,
-      entryZoneLow: hasActionableLevels ? entryPlan.entryZoneLow : null,
-      entryZoneHigh: hasActionableLevels ? entryPlan.entryZoneHigh : null,
-      maxChase: hasActionableLevels ? entryPlan.maxChase : null,
-      stopLoss: hasActionableLevels ? draft.setup.stopLoss : null,
-      takeProfit1: hasActionableLevels ? draft.setup.takeProfit : null,
-      takeProfit2: hasActionableLevels ? entryPlan.takeProfit2 : null,
-      invalidation: hasActionableLevels ? entryPlan.invalidation : null,
-      riskReward: hasActionableLevels ? draft.setup.riskReward : null,
-      positionSize: hasActionableLevels ? draft.setup.positionSize : null,
-      riskAmount: hasActionableLevels ? draft.setup.riskAmount : null,
-      scores,
-      marketRegime,
-      dataStatus: draft.snapshot.dataStatus as RankedOpportunity["dataStatus"],
-      reasons: [
-        ...draft.setup.reasons.slice(0, 4),
-        ...draft.technicalBreakdown.reasons.slice(0, 2),
-        ...draft.newsImpact.headlines.slice(0, 1).map((h) => `News: ${h}`),
-      ],
-      risks,
-      waitingFor,
-      newsHeadlines: draft.newsImpact.headlines,
-      newsItems: draft.newsImpact.newsItems,
-      confirmation: draft.setup.confirmation
-        ? {
-            direction: draft.setup.confirmation.direction,
-            confirmation: draft.setup.confirmation.confirmation,
-            trend: draft.setup.confirmation.trend,
-            momentum: draft.setup.confirmation.momentum,
-            ema: draft.setup.confirmation.ema,
-            macd: draft.setup.confirmation.macd,
-            regime: marketRegime,
-            atrValid: draft.setup.confirmation.atrValid,
-            rrValid: draft.setup.confirmation.rrValid,
-            explain: draft.setup.confirmation.explain,
-          }
-        : null,
-      scannedAt,
-    };
-  });
+  }
 
   logSafeDiagnostics(diagnostics);
 
-  const actionable = finalized
+  const stocks = finalized.filter((item) => item.assetClass !== "CRYPTO");
+  const cryptos = finalized.filter((item) => item.assetClass === "CRYPTO");
+  const bestStock = selectBestOpportunity(stocks);
+  const bestCrypto = selectBestOpportunity(cryptos);
+  const partitioned = partitionByQuality(finalized);
+
+  const rankedBoard = finalized
     .filter(
       (item) =>
-        item.tier === "STRONG_OPPORTUNITY" || item.tier === "OPPORTUNITY",
+        item.quality === "STRONG" ||
+        item.quality === "CONFIRMED" ||
+        item.quality === "EARLY_SETUP" ||
+        item.quality === "WATCH",
     )
-    .sort((a, b) => b.scores.opportunityScore - a.scores.opportunityScore);
+    .sort(compareOpportunityRank);
 
-  const watchList = finalized
-    .filter((item) => item.tier === "WATCH")
-    .sort((a, b) => b.scores.opportunityScore - a.scores.opportunityScore);
+  const topStocks = rankedBoard
+    .filter((item) => item.assetClass !== "CRYPTO")
+    .slice(0, TOP_STOCK_LIMIT);
+  const topCrypto = rankedBoard
+    .filter((item) => item.assetClass === "CRYPTO")
+    .slice(0, TOP_CRYPTO_LIMIT);
 
-  const strong = finalized.filter((i) => i.tier === "STRONG_OPPORTUNITY").length;
-  const opportunities = finalized.filter((i) => i.tier === "OPPORTUNITY").length;
-  const watch = watchList.length;
+  const strong = finalized.filter((i) => i.quality === "STRONG").length;
+  const confirmed = finalized.filter((i) => i.quality === "CONFIRMED").length;
+  const earlySetup = partitioned.developing.length;
+  const watch = partitioned.watch.length;
+  const opportunities = confirmed; // legacy field: confirmed count
   const boardState = deriveBoardState({
     liveOrCached,
-    strong,
-    opportunities,
-    watch,
+    confirmedOrStrong: strong + confirmed,
+    earlyOrWatch: earlySetup + watch,
   });
 
-  // Provider/data failures must not inflate genuine NO_TRADE trading decisions
   const noTrade = finalized.filter(
     (i) =>
-      i.tier === "NO_TRADE" &&
+      i.quality === "NO_TRADE" &&
       !isDataQualityRejection(
         diagnostics.find((d) => d.symbol === i.symbol)?.rejectionReason ?? null,
       ),
@@ -633,26 +816,18 @@ export async function scanDailyOpportunities(input: {
     dataSkipped: diagnostics.filter((d) => d.tier === "DATA_SKIP").length,
   });
 
-  console.info("[opportunity-scan] signal blockers", {
+  const freshness = buildFreshnessCounts(diagnostics);
+
+  console.info("[opportunity-scan] phase22 ranking", {
     boardState,
-    liveAssets: signalReport.liveAssets,
-    validSetups: signalReport.validSetups,
-    blockerAggregate: signalReport.blockerAggregate,
-    confirmationSimulation: {
-      currentValid: signalReport.confirmationSimulation.currentValid,
-      alternativeValid: signalReport.confirmationSimulation.alternativeValid,
-    },
-    liveSample: signalReport.liveDiagnostics.slice(0, 8).map((d) => ({
-      symbol: d.symbol,
-      trend: d.trend,
-      momentum: d.momentum,
-      emaAlignment: d.emaAlignment,
-      macd: d.macd,
-      engineDirection: d.engineDirection,
-      firstBlocker: d.firstBlocker,
-      confirmationLevel: d.confirmationLevel,
-      legacyAllFour: d.legacyAllFourWouldPass,
-    })),
+    bestStock: bestStock?.symbol ?? null,
+    bestCrypto: bestCrypto?.symbol ?? null,
+    strong,
+    confirmed,
+    earlySetup,
+    watch,
+    mtfEnriched: enrichTargets.length,
+    freshness,
   });
 
   return {
@@ -662,21 +837,43 @@ export async function scanDailyOpportunities(input: {
     liveOrCached,
     strong,
     opportunities,
+    confirmed,
+    earlySetup,
     watch,
     noTrade,
-    topStocks: actionable
-      .filter((item) => item.assetClass !== "CRYPTO")
-      .slice(0, TOP_STOCK_LIMIT),
-    topCrypto: actionable
-      .filter((item) => item.assetClass === "CRYPTO")
-      .slice(0, TOP_CRYPTO_LIMIT),
-    all: finalized.sort(
-      (a, b) => b.scores.opportunityScore - a.scores.opportunityScore,
-    ),
+    bestStock,
+    bestCrypto,
+    topStocks,
+    topCrypto,
+    developing: partitioned.developing,
+    watchList: partitioned.watch,
+    all: [...finalized].sort(compareOpportunityRank),
     marketRegime,
-    noHighConfidence: actionable.length === 0,
+    noHighConfidence: bestStock === null && bestCrypto === null,
+    whyNoBestStock:
+      bestStock === null
+        ? whyNoBest({
+            assetClass: "STOCK",
+            candidates: stocks,
+            liveOrCached: stocks.filter(
+              (s) => s.dataStatus === "LIVE" || s.dataStatus === "CACHED",
+            ).length,
+          })
+        : null,
+    whyNoBestCrypto:
+      bestCrypto === null
+        ? whyNoBest({
+            assetClass: "CRYPTO",
+            candidates: cryptos,
+            liveOrCached: cryptos.filter(
+              (s) => s.dataStatus === "LIVE" || s.dataStatus === "CACHED",
+            ).length,
+          })
+        : null,
     boardState,
+    freshness,
     diagnostics,
     signalReport,
+    schedulerNote: SCHEDULER_NOTE,
   };
 }

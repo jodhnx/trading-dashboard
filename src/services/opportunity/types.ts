@@ -41,7 +41,14 @@ export const MARKET_REGIMES = [
 ] as const;
 export type MarketRegime = (typeof MARKET_REGIMES)[number];
 
-/** Configurable opportunity score weights (normalized). Does not alter Trading Engine SCORE_WEIGHTS. */
+/**
+ * Configurable opportunity score weights (normalized).
+ * Does not alter Trading Engine SCORE_WEIGHTS.
+ *
+ * Phase 22: added multiTimeframe (10) for MTF alignment evidence.
+ * Existing component weights are unchanged; the new term dilutes the blend
+ * via weightTotal() rather than stealing points from individual buckets.
+ */
 export const OPPORTUNITY_SCORE_WEIGHTS = {
   technical: 30,
   momentum: 15,
@@ -51,13 +58,55 @@ export const OPPORTUNITY_SCORE_WEIGHTS = {
   sentiment: 5,
   marketRegime: 5,
   riskReward: 10,
+  multiTimeframe: 10,
 } as const;
+
+export const SIGNAL_QUALITIES = [
+  "STRONG",
+  "CONFIRMED",
+  "EARLY_SETUP",
+  "WATCH",
+  "NO_TRADE",
+  "DATA_INSUFFICIENT",
+] as const;
+export type SignalQuality = (typeof SIGNAL_QUALITIES)[number];
+
+export const DATA_FRESHNESS = [
+  "LIVE",
+  "RECENT",
+  "CACHED",
+  "STALE",
+  "UNAVAILABLE",
+] as const;
+export type DataFreshness = (typeof DATA_FRESHNESS)[number];
+
+export type MtfFrameStatus = {
+  timeframe: string;
+  available: boolean;
+  dataStatus: string;
+  trend: string;
+  momentum: string;
+  reason: string | null;
+};
+
+export type MtfAlignment = {
+  daily: MtfFrameStatus;
+  setup: MtfFrameStatus;
+  entry: MtfFrameStatus;
+  aligned: boolean;
+  score: number;
+  notes: string[];
+};
 
 export const STRONG_OPPORTUNITY_MIN = 80;
 export const OPPORTUNITY_MIN = 65;
 export const WATCH_MIN = 50;
 export const TOP_STOCK_LIMIT = 5;
 export const TOP_CRYPTO_LIMIT = 5;
+
+/** Hobby plan: one cron/day — exit monitoring needs a separate scheduler later. */
+export const SCHEDULER_NOTE =
+  "Vercel Hobby supports one cron job; daily scan covers universe/news/regime/ranking. Real-time exit monitoring needs an external/hourly scheduler — daily data is not real-time.";
 
 /** Board-level outcome — never confuse scanner failure with genuine NO_TRADE. */
 export const SCAN_BOARD_STATES = [
@@ -94,8 +143,10 @@ export type OpportunityCandidateDiagnostic = {
   sentimentScore: number;
   regimeScore: number;
   riskRewardScore: number;
+  multiTimeframeScore: number;
   finalOpportunityScore: number;
   tier: OpportunityTier | "DATA_SKIP";
+  quality: SignalQuality | "DATA_SKIP";
   rejectionReason: string | null;
 };
 
@@ -108,6 +159,7 @@ export type OpportunityScoreBreakdown = {
   sentimentScore: number;
   marketRegimeScore: number;
   riskRewardScore: number;
+  multiTimeframeScore: number;
   opportunityScore: number;
   weights: typeof OPPORTUNITY_SCORE_WEIGHTS;
 };
@@ -117,7 +169,10 @@ export type RankedOpportunity = {
   name: string;
   assetClass: "STOCK" | "CRYPTO" | "ETF" | "COMMODITY" | "INDEX";
   direction: SetupDirection;
+  /** Legacy board tier (persistence / Phase 18–21 compat). */
   tier: OpportunityTier;
+  /** Phase 22 explicit signal quality. */
+  quality: SignalQuality;
   setupType: SetupType;
   holdingHorizon: HoldingHorizon;
   currentPrice: number | null;
@@ -137,6 +192,10 @@ export type RankedOpportunity = {
   scores: OpportunityScoreBreakdown;
   marketRegime: MarketRegime;
   dataStatus: DataStatus | "UNAVAILABLE";
+  dataFreshness: DataFreshness;
+  confidence: number;
+  thesis: string;
+  mtf: MtfAlignment;
   reasons: string[];
   risks: string[];
   waitingFor: string[];
@@ -157,6 +216,16 @@ export type RankedOpportunity = {
   scannedAt: string;
 };
 
+export type FreshnessCounts = {
+  liveCount: number;
+  recentCount: number;
+  cachedCount: number;
+  staleCount: number;
+  unavailableCount: number;
+  dataSkippedCount: number;
+  skipReasons: Record<string, number>;
+};
+
 export type OpportunityScanSummary = {
   scanned: number;
   available: number;
@@ -164,14 +233,24 @@ export type OpportunityScanSummary = {
   liveOrCached: number;
   strong: number;
   opportunities: number;
+  confirmed: number;
+  earlySetup: number;
   watch: number;
   noTrade: number;
+  bestStock: RankedOpportunity | null;
+  bestCrypto: RankedOpportunity | null;
   topStocks: RankedOpportunity[];
   topCrypto: RankedOpportunity[];
+  developing: RankedOpportunity[];
+  watchList: RankedOpportunity[];
   all: RankedOpportunity[];
   marketRegime: MarketRegime;
   noHighConfidence: boolean;
+  whyNoBestStock: string | null;
+  whyNoBestCrypto: string | null;
   boardState: ScanBoardState;
+  freshness: FreshnessCounts;
   diagnostics: OpportunityCandidateDiagnostic[];
   signalReport: SignalDiagnosticsReport;
+  schedulerNote: string;
 };

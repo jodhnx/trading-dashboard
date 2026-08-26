@@ -31,7 +31,7 @@ export async function GET() {
 
   return Response.json({
     ok: true,
-    phase: 21,
+    phase: 22,
     supabase: {
       configured: publicEnv.supabaseConfigured,
     },
@@ -45,6 +45,7 @@ export async function GET() {
       configured: isCronConfigured(),
       scheduleUtc: "30 5 * * *",
       path: "/api/cron/daily-pipeline",
+      note: "Hobby one-cron-per-day covers the daily opportunity scan only. Real-time exit monitoring requires an external/hourly scheduler.",
     },
   });
 }

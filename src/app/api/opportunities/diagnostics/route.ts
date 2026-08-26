@@ -105,7 +105,17 @@ export async function GET(request: Request) {
       })),
       total: OPPORTUNITY_UNIVERSE.length,
     },
+    freshness: {
+      liveCount: meta.signalReport?.liveAssets ?? 0,
+      cachedCount: 0,
+      staleCount: 0,
+      unavailableCount: 0,
+      dataSkippedCount: signal?.dataSkipped ?? 0,
+      skipReasons: signal?.skipReasons ?? {},
+    },
+    schedulerNote:
+      "Vercel Hobby supports one cron job; daily scan covers universe/news/regime/ranking. Real-time exit monitoring needs an external/hourly scheduler — daily data is not real-time.",
     disclaimer:
-      "Diagnostics only. Active confirmation rule is trend + momentum + (EMA OR MACD).",
+      "Diagnostics only. Active confirmation rule is trend + momentum + (EMA OR MACD). Phase 22 ranks EARLY_SETUP without forcing trades.",
   });
 }

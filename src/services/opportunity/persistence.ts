@@ -119,6 +119,11 @@ export async function persistOpportunityScan(input: {
         waitingFor: opportunity.waitingFor,
         newsItems: opportunity.newsItems,
         confirmation: opportunity.confirmation,
+        quality: opportunity.quality,
+        dataFreshness: opportunity.dataFreshness,
+        confidence: opportunity.confidence,
+        thesis: opportunity.thesis,
+        mtf: opportunity.mtf,
       } as unknown as Json,
       asset_class: opportunity.assetClass,
       setup_type: opportunity.setupType,
@@ -155,7 +160,36 @@ function mapOpportunityRow(
     waitingFor?: string[];
     newsItems?: RankedOpportunity["newsItems"];
     confirmation?: RankedOpportunity["confirmation"];
+    quality?: RankedOpportunity["quality"];
+    dataFreshness?: RankedOpportunity["dataFreshness"];
+    confidence?: number;
+    thesis?: string;
+    mtf?: RankedOpportunity["mtf"];
   };
+
+  const tier = (row.opportunity_tier as RankedOpportunity["tier"]) ?? "WATCH";
+  const quality: RankedOpportunity["quality"] =
+    breakdown.quality ??
+    (tier === "STRONG_OPPORTUNITY"
+      ? "STRONG"
+      : tier === "OPPORTUNITY"
+        ? "CONFIRMED"
+        : tier === "WATCH"
+          ? "WATCH"
+          : "NO_TRADE");
+
+  const dataStatus =
+    (row.data_status as RankedOpportunity["dataStatus"]) ?? "UNAVAILABLE";
+  const dataFreshness =
+    breakdown.dataFreshness ??
+    (dataStatus === "LIVE"
+      ? "LIVE"
+      : dataStatus === "CACHED"
+        ? "CACHED"
+        : dataStatus === "STALE"
+          ? "STALE"
+          : "UNAVAILABLE");
+
   return {
     symbol: asset.symbol,
     name: asset.name,
@@ -166,7 +200,8 @@ function mapOpportunityRow(
         : row.decision === "BUY_SETUP"
           ? "LONG"
           : "NO_TRADE",
-    tier: (row.opportunity_tier as RankedOpportunity["tier"]) ?? "WATCH",
+    tier,
+    quality,
     setupType: (row.setup_type as RankedOpportunity["setupType"]) ?? "NO_SETUP",
     holdingHorizon:
       (row.holding_horizon as RankedOpportunity["holdingHorizon"]) ?? "UNKNOWN",
@@ -193,6 +228,7 @@ function mapOpportunityRow(
       sentimentScore: breakdown.sentimentScore ?? 0,
       marketRegimeScore: breakdown.marketRegimeScore ?? 0,
       riskRewardScore: breakdown.riskRewardScore ?? 0,
+      multiTimeframeScore: breakdown.multiTimeframeScore ?? 50,
       opportunityScore: row.opportunity_score ?? Number(row.score) * 10,
       weights: breakdown.weights ?? {
         technical: 30,
@@ -203,10 +239,45 @@ function mapOpportunityRow(
         sentiment: 5,
         marketRegime: 5,
         riskReward: 10,
+        multiTimeframe: 10,
       },
     },
     marketRegime: (row.market_regime as RankedOpportunity["marketRegime"]) ?? "UNKNOWN",
-    dataStatus: (row.data_status as RankedOpportunity["dataStatus"]) ?? "UNAVAILABLE",
+    dataStatus,
+    dataFreshness,
+    confidence:
+      breakdown.confidence ??
+      Math.round(row.opportunity_score ?? Number(row.score) * 10),
+    thesis: breakdown.thesis ?? (row.reasons?.[0] ?? "Stored opportunity"),
+    mtf: breakdown.mtf ?? {
+      daily: {
+        timeframe: "1day",
+        available: dataStatus !== "UNAVAILABLE",
+        dataStatus,
+        trend: "UNKNOWN",
+        momentum: "UNKNOWN",
+        reason: null,
+      },
+      setup: {
+        timeframe: "4h",
+        available: false,
+        dataStatus: "UNAVAILABLE",
+        trend: "UNKNOWN",
+        momentum: "UNKNOWN",
+        reason: "not_persisted",
+      },
+      entry: {
+        timeframe: "1h",
+        available: false,
+        dataStatus: "UNAVAILABLE",
+        trend: "UNKNOWN",
+        momentum: "UNKNOWN",
+        reason: "not_persisted",
+      },
+      aligned: false,
+      score: breakdown.multiTimeframeScore ?? 50,
+      notes: ["MTF details not in stored row"],
+    },
     reasons: row.reasons ?? [],
     risks: row.risks ?? [],
     waitingFor: breakdown.waitingFor ?? [],
