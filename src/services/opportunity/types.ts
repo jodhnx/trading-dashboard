@@ -114,8 +114,11 @@ export type MtfAlignment = {
 export const STRONG_OPPORTUNITY_MIN = 80;
 export const OPPORTUNITY_MIN = 65;
 export const WATCH_MIN = 50;
-export const TOP_STOCK_LIMIT = 5;
-export const TOP_CRYPTO_LIMIT = 5;
+export const TOP_STOCK_LIMIT = 10;
+export const TOP_CRYPTO_LIMIT = 10;
+export const TOP_ETF_LIMIT = 10;
+export const DISCOVERED_LIMIT = 15;
+export const SPECULATIVE_LIMIT = 10;
 
 /** Hobby plan: one cron/day — exit monitoring needs a separate scheduler later. */
 export const SCHEDULER_NOTE =
@@ -180,6 +183,9 @@ export type OpportunityScoreBreakdown = {
   multiTimeFrameScore: number;
   /** @deprecated alias of multiTimeFrameScore */
   multiTimeframeScore: number;
+  /** Phase 25 — inverse risk quality (higher = safer). */
+  riskScore: number;
+  dataQualityScore: number;
   opportunityScore: number;
   weights: typeof OPPORTUNITY_SCORE_WEIGHTS;
 };
@@ -238,6 +244,12 @@ export type RankedOpportunity = {
     explain: string;
   } | null;
   scannedAt: string;
+  /** Phase 25 board quality — TRADE / DEVELOPING / SPECULATIVE / WATCH / NO_TRADE / DATA_SKIP */
+  boardQuality?: import("./board-quality").BoardQuality;
+  riskLevel?: import("./risk").RiskLevel;
+  recommendedRiskPercent?: number | null;
+  discoveryTags?: string[];
+  screenScore?: number | null;
 };
 
 export type FreshnessCounts = {
@@ -265,6 +277,9 @@ export type OpportunityScanSummary = {
   bestCrypto: RankedOpportunity | null;
   topStocks: RankedOpportunity[];
   topCrypto: RankedOpportunity[];
+  topEtfs: RankedOpportunity[];
+  discovered: RankedOpportunity[];
+  speculative: RankedOpportunity[];
   developing: RankedOpportunity[];
   blocked: RankedOpportunity[];
   watchList: RankedOpportunity[];
@@ -278,4 +293,6 @@ export type OpportunityScanSummary = {
   diagnostics: OpportunityCandidateDiagnostic[];
   signalReport: SignalDiagnosticsReport;
   schedulerNote: string;
+  /** Phase 25 scan stage statistics */
+  stageStats?: import("@/services/universe/types").ScanStageStats;
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RELEASE_PHASE, APP_VERSION, RELEASE_NAME } from "@/lib/release";
+import { RELEASE_PHASE } from "@/lib/release";
 import {
   deriveTradeAction,
   isActionableOpportunity,
@@ -60,6 +60,8 @@ function baseRanked(
       riskRewardScore: 50,
       multiTimeFrameScore: 50,
       multiTimeframeScore: 50,
+      riskScore: 75,
+      dataQualityScore: 80,
       opportunityScore: 70,
       weights: OPPORTUNITY_SCORE_WEIGHTS,
       ...scores,
@@ -151,10 +153,8 @@ function eligibleLevels(
 }
 
 describe("phase24 release", () => {
-  it("reports phase 24 / 0.24.0", () => {
-    expect(RELEASE_PHASE).toBe(24);
-    expect(APP_VERSION).toBe("0.24.0");
-    expect(RELEASE_NAME).toBe("FINAL_TRADING_WORKFLOW");
+  it("release moved to phase 25 — see phase25.test.ts", () => {
+    expect(RELEASE_PHASE).toBe(25);
   });
 });
 

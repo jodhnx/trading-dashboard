@@ -2,8 +2,29 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { liveSnapshot } from "@/ai/test-fixtures";
 import { emptyTechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import { OPPORTUNITY_UNIVERSE } from "./universe";
+import type { CatalogAsset } from "@/services/universe/types";
 
 vi.mock("server-only", () => ({}));
+
+const TEST_UNIVERSE: CatalogAsset[] = OPPORTUNITY_UNIVERSE.filter((a) =>
+  ["SPY", "QQQ", "NVDA", "BTC", "ETH", "AAPL", "USD"].includes(a.symbol),
+).map((a) => ({
+  ...a,
+  tradable: a.symbol !== "USD",
+  providerMapped: a.providerSymbol !== null,
+  liquidityTier: a.minLiquidityTier,
+}));
+
+function scanInput(extra?: Partial<Parameters<typeof scanDailyOpportunities>[0]>) {
+  return {
+    userId: "user-1",
+    email: null,
+    now: new Date("2026-08-26T14:00:00.000Z"),
+    persistence: "admin" as const,
+    scanUniverse: TEST_UNIVERSE,
+    ...extra,
+  };
+}
 
 const getOrCreateAccountSettings = vi.fn();
 const getTechnicalSnapshot = vi.fn();
@@ -81,7 +102,10 @@ describe("scanDailyOpportunities", () => {
       preferredMarkets: ["US_EQUITIES"],
       preferredAssets: [],
     });
-    getQuote.mockResolvedValue({ status: "LIVE", quote: { price: 100 } });
+    getQuote.mockResolvedValue({
+      status: "LIVE",
+      quote: { price: 100, changePercent: 2, volume: 2_000_000 },
+    });
     listNews.mockResolvedValue({ items: [] });
   });
 
@@ -93,14 +117,9 @@ describe("scanDailyOpportunities", () => {
       return unavailable(symbol);
     });
 
-    const summary = await scanDailyOpportunities({
-      userId: "user-1",
-      email: null,
-      now: new Date("2026-08-26T14:00:00.000Z"),
-      persistence: "admin",
-    });
+    const summary = await scanDailyOpportunities(scanInput());
 
-    expect(summary.scanned).toBe(OPPORTUNITY_UNIVERSE.length);
+    expect(summary.scanned).toBe(TEST_UNIVERSE.filter((a) => a.tradable).length);
     expect(summary.liveOrCached).toBeGreaterThanOrEqual(3);
     expect(summary.marketRegime).toBe("BULL");
     expect(summary.diagnostics.some((d) => d.symbol === "SPY")).toBe(true);
@@ -127,12 +146,7 @@ describe("scanDailyOpportunities", () => {
       return unavailable(symbol);
     });
 
-    const summary = await scanDailyOpportunities({
-      userId: "user-1",
-      email: null,
-      now: new Date("2026-08-26T14:00:00.000Z"),
-      persistence: "admin",
-    });
+    const summary = await scanDailyOpportunities(scanInput());
 
     expect(summary.topCrypto.length).toBeGreaterThan(0);
     expect(summary.topCrypto[0]?.assetClass).toBe("CRYPTO");
@@ -167,12 +181,7 @@ describe("scanDailyOpportunities", () => {
       return unavailable(symbol);
     });
 
-    const summary = await scanDailyOpportunities({
-      userId: "user-1",
-      email: null,
-      now: new Date("2026-08-26T14:00:00.000Z"),
-      persistence: "admin",
-    });
+    const summary = await scanDailyOpportunities(scanInput());
 
     expect(summary.marketRegime).toBe("UNKNOWN");
     expect(summary.liveOrCached).toBe(1);
@@ -185,12 +194,7 @@ describe("scanDailyOpportunities", () => {
       unavailable(symbol),
     );
 
-    const summary = await scanDailyOpportunities({
-      userId: "user-1",
-      email: null,
-      now: new Date("2026-08-26T14:00:00.000Z"),
-      persistence: "admin",
-    });
+    const summary = await scanDailyOpportunities(scanInput());
 
     expect(summary.liveOrCached).toBe(0);
     expect(summary.topStocks).toEqual([]);
@@ -214,12 +218,7 @@ describe("scanDailyOpportunities", () => {
       return unavailable(symbol);
     });
 
-    const summary = await scanDailyOpportunities({
-      userId: "user-1",
-      email: null,
-      now: new Date("2026-08-26T14:00:00.000Z"),
-      persistence: "admin",
-    });
+    const summary = await scanDailyOpportunities(scanInput());
 
     expect(summary.liveOrCached).toBe(2);
     expect(summary.boardState).toBe("OPPORTUNITIES_AVAILABLE");
@@ -250,12 +249,7 @@ describe("scanDailyOpportunities", () => {
       return unavailable(symbol);
     });
 
-    const summary = await scanDailyOpportunities({
-      userId: "user-1",
-      email: null,
-      now: new Date("2026-08-26T14:00:00.000Z"),
-      persistence: "admin",
-    });
+    const summary = await scanDailyOpportunities(scanInput());
 
     const nvda = summary.topStocks.find((item) => item.symbol === "NVDA");
     expect(nvda?.newsItems[0]?.title).toMatch(/NVIDIA/);

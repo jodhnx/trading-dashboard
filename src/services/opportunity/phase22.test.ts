@@ -62,6 +62,8 @@ function baseRanked(
       riskRewardScore: 50,
       multiTimeFrameScore: 50,
       multiTimeframeScore: 50,
+      riskScore: 75,
+      dataQualityScore: 80,
       opportunityScore: 70,
       weights: OPPORTUNITY_SCORE_WEIGHTS,
       ...scores,

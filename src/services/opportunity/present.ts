@@ -1,6 +1,7 @@
 import type { RankedOpportunity } from "./types";
 import { qualityLabel } from "./ranking";
 import { OPPORTUNITY_SCORE_WEIGHTS } from "./types";
+import { boardQualityLabel } from "./board-quality";
 import {
   deriveTradeAction,
   isActionableOpportunity,
@@ -40,10 +41,19 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
     technicalConfirmation: item.technicalConfirmation,
     quality: item.quality,
     qualityLabel: qualityLabel(item.quality),
-    tier: item.tier,
+    boardQuality: item.boardQuality ?? null,
+    boardQualityLabel: item.boardQuality
+      ? boardQualityLabel(item.boardQuality)
+      : null,
+    riskLevel: item.riskLevel ?? "UNKNOWN",
+    recommendedRiskPercent: item.recommendedRiskPercent ?? null,
+    discoveryTags: item.discoveryTags ?? [],
+    screenScore: item.screenScore ?? null,
+    positionSize: item.positionSize,
     actionable,
     action,
     actionLabel: tradeActionLabel(action),
+    tier: item.tier,
     opportunityScore: item.scores.opportunityScore,
     confidence: item.confidence,
     price: item.currentPrice,
@@ -86,6 +96,8 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
       riskRewardScore: item.scores.riskRewardScore,
       multiTimeFrameScore: item.scores.multiTimeFrameScore,
       multiTimeframeScore: item.scores.multiTimeFrameScore,
+      riskScore: item.scores.riskScore ?? 50,
+      dataQualityScore: item.scores.dataQualityScore ?? 50,
       opportunityScore: item.scores.opportunityScore,
     },
     weights: {

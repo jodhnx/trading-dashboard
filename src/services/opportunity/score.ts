@@ -158,6 +158,8 @@ export function computeOpportunityScore(input: {
     riskRewardScore: rrScore,
     multiTimeFrameScore,
     multiTimeframeScore: multiTimeFrameScore,
+    riskScore: 50,
+    dataQualityScore: 50,
     opportunityScore: clamp(blended * freshnessFactor),
     weights: OPPORTUNITY_SCORE_WEIGHTS,
   };

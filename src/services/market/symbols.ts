@@ -1,3 +1,5 @@
+import { getCatalogAsset } from "@/services/universe/catalog";
+
 export type WatchAsset = {
   symbol: string;
   name: string;
@@ -95,6 +97,10 @@ export function toProviderSymbol(symbol: string): string | null {
   const watched = getWatchAsset(internal);
   if (watched) {
     return watched.providerSymbol;
+  }
+  const catalog = getCatalogAsset(internal);
+  if (catalog) {
+    return catalog.providerSymbol;
   }
   if (Object.prototype.hasOwnProperty.call(PROVIDER_MAP, internal)) {
     return PROVIDER_MAP[internal] ?? null;

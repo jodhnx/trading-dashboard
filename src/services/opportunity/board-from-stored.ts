@@ -5,7 +5,14 @@ import {
   selectBestOpportunity,
   whyNoBest,
 } from "./ranking";
-import { TOP_CRYPTO_LIMIT, TOP_STOCK_LIMIT } from "./types";
+import {
+  TOP_CRYPTO_LIMIT,
+  TOP_STOCK_LIMIT,
+  TOP_ETF_LIMIT,
+  DISCOVERED_LIMIT,
+  SPECULATIVE_LIMIT,
+} from "./types";
+import { isDiscoveredCandidate, FAMOUS_SYMBOLS } from "./discovery";
 
 function withInferredQuality(item: RankedOpportunity): RankedOpportunity {
   // Never promote NO_TRADE / BLOCKED based on tier alone.
@@ -57,7 +64,7 @@ export function boardFromStored(opportunities: RankedOpportunity[]) {
     topStocks: inferred
       .filter(
         (item) =>
-          item.assetClass !== "CRYPTO" &&
+          item.assetClass === "STOCK" &&
           item.tradeStatus !== "BLOCKED" &&
           (item.quality === "STRONG" ||
             item.quality === "CONFIRMED" ||
@@ -76,6 +83,32 @@ export function boardFromStored(opportunities: RankedOpportunity[]) {
             item.quality === "WATCH"),
       )
       .slice(0, TOP_CRYPTO_LIMIT),
+    topEtfs: inferred
+      .filter(
+        (item) =>
+          item.assetClass === "ETF" &&
+          item.tradeStatus !== "BLOCKED" &&
+          (item.quality === "STRONG" ||
+            item.quality === "CONFIRMED" ||
+            item.quality === "EARLY_SETUP" ||
+            item.quality === "WATCH"),
+      )
+      .slice(0, TOP_ETF_LIMIT),
+    discovered: inferred
+      .filter((item) =>
+        isDiscoveredCandidate({
+          tags: (item.discoveryTags ?? []) as import("./discovery").DiscoveryTag[],
+          screenScore: item.screenScore ?? 0,
+          opportunityScore: item.scores.opportunityScore,
+          symbol: item.symbol,
+          famousSymbols: FAMOUS_SYMBOLS,
+        }),
+      )
+      .slice(0, DISCOVERED_LIMIT),
+    speculative: inferred
+      .filter((item) => item.boardQuality === "SPECULATIVE")
+      .sort(compareOpportunityRank)
+      .slice(0, SPECULATIVE_LIMIT),
     developing: parts.developing,
     blocked: parts.blocked,
     watch: parts.watch,

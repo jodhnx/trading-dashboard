@@ -5,6 +5,7 @@ import { boardFromStored } from "@/services/opportunity/board-from-stored";
 import { toOpportunityCandidate } from "@/services/opportunity/present";
 import { utcBriefDate } from "@/services/daily-brief/date";
 import { loadUserExitCandidates } from "@/services/exit/load-user-exits";
+import { catalogSize } from "@/services/universe/catalog";
 import {
   SCHEDULER_NOTE,
   type ScanBoardState,
@@ -99,6 +100,9 @@ export async function GET(request: Request) {
     whyNoBestCrypto: board.whyNoBestCrypto,
     topStocks: board.topStocks.map(toOpportunityCandidate),
     topCrypto: board.topCrypto.map(toOpportunityCandidate),
+    topEtfs: board.topEtfs.map(toOpportunityCandidate),
+    discovered: board.discovered.map(toOpportunityCandidate),
+    speculative: board.speculative.map(toOpportunityCandidate),
     developing: board.developing.map(toOpportunityCandidate),
     blocked: board.blocked.map(toOpportunityCandidate),
     watch: board.watch.map(toOpportunityCandidate),
@@ -107,6 +111,9 @@ export async function GET(request: Request) {
       developing: board.developing.length,
       watch: board.watch.length,
       blocked: board.blocked.length,
+      discovered: board.discovered.length,
+      speculative: board.speculative.length,
+      universeSize: catalogSize(),
       openPaperHint: "See Paper Positions for open simulated trades.",
     },
     exitAlerts,
