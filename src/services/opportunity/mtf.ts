@@ -87,12 +87,12 @@ export function snapshotToMtfFrame(
 export function emptyMtfAlignment(daily: TechnicalSnapshot): MtfAlignment {
   return {
     daily: snapshotToMtfFrame(daily, MTF_REGIME_TIMEFRAME, null),
-    setup: snapshotToMtfFrame(null, MTF_SETUP_TIMEFRAME, "DATA_UNAVAILABLE"),
-    entry: snapshotToMtfFrame(null, MTF_ENTRY_TIMEFRAME, "DATA_UNAVAILABLE"),
+    setup: snapshotToMtfFrame(null, MTF_SETUP_TIMEFRAME, "not_enriched"),
+    entry: snapshotToMtfFrame(null, MTF_ENTRY_TIMEFRAME, "not_enriched"),
     aligned: false,
     score: 50,
     notes: [
-      "Higher-timeframe daily regime only — setup/entry frames unavailable (not fabricated)",
+      "Higher-timeframe daily regime only — setup/entry frames not enriched yet (not fabricated)",
     ],
   };
 }

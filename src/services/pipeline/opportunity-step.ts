@@ -24,6 +24,7 @@ export async function runOpportunityScanForUser(input: {
     ...summary.topStocks,
     ...summary.topCrypto,
     ...summary.developing,
+    ...summary.blocked,
     ...summary.watchList.slice(0, 15),
   ];
   if (summary.bestStock) persistable.unshift(summary.bestStock);

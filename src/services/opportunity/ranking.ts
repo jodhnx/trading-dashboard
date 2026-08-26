@@ -25,16 +25,20 @@ export function selectBestOpportunity(
 export function partitionByQuality(candidates: RankedOpportunity[]): {
   bestEligible: RankedOpportunity[];
   developing: RankedOpportunity[];
+  blocked: RankedOpportunity[];
   watch: RankedOpportunity[];
   noTrade: RankedOpportunity[];
 } {
   const bestEligible: RankedOpportunity[] = [];
   const developing: RankedOpportunity[] = [];
+  const blocked: RankedOpportunity[] = [];
   const watch: RankedOpportunity[] = [];
   const noTrade: RankedOpportunity[] = [];
 
   for (const item of [...candidates].sort(compareOpportunityRank)) {
-    if (item.quality === "STRONG" || item.quality === "CONFIRMED") {
+    if (item.tradeStatus === "BLOCKED") {
+      blocked.push(item);
+    } else if (item.quality === "STRONG" || item.quality === "CONFIRMED") {
       bestEligible.push(item);
     } else if (item.quality === "EARLY_SETUP") {
       developing.push(item);
@@ -45,7 +49,7 @@ export function partitionByQuality(candidates: RankedOpportunity[]): {
     }
   }
 
-  return { bestEligible, developing, watch, noTrade };
+  return { bestEligible, developing, blocked, watch, noTrade };
 }
 
 export function whyNoBest(input: {

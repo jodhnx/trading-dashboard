@@ -43,6 +43,7 @@ export async function GET(request: Request) {
     topStocks: board.topStocks.map(toOpportunityCandidate),
     topCrypto: board.topCrypto.map(toOpportunityCandidate),
     developing: board.developing.map(toOpportunityCandidate),
+    blocked: board.blocked.map(toOpportunityCandidate),
     watch: board.watch.map(toOpportunityCandidate),
     whyNoBestStock: board.whyNoBestStock,
     whyNoBestCrypto: board.whyNoBestCrypto,

@@ -13,10 +13,11 @@ import {
 function deriveBoardStateFromRows(input: {
   confirmed: number;
   developing: number;
+  blocked: number;
   watch: number;
 }): ScanBoardState | null {
   if (input.confirmed > 0) return "OPPORTUNITIES_AVAILABLE";
-  if (input.developing + input.watch > 0) return "WATCH_ONLY";
+  if (input.developing + input.blocked + input.watch > 0) return "WATCH_ONLY";
   return null;
 }
 
@@ -58,6 +59,7 @@ export async function GET(request: Request) {
   const fromRows = deriveBoardStateFromRows({
     confirmed: confirmedCount,
     developing: board.developing.length,
+    blocked: board.blocked.length,
     watch: board.watch.length,
   });
 
@@ -92,6 +94,7 @@ export async function GET(request: Request) {
     topStocks: board.topStocks.map(toOpportunityCandidate),
     topCrypto: board.topCrypto.map(toOpportunityCandidate),
     developing: board.developing.map(toOpportunityCandidate),
+    blocked: board.blocked.map(toOpportunityCandidate),
     watch: board.watch.map(toOpportunityCandidate),
     exitAlerts,
     whyNoSetup: pipelineMeta.signalReport?.whyNoSetup ?? [],
@@ -108,6 +111,6 @@ export async function GET(request: Request) {
     schedulerNote: SCHEDULER_NOTE,
     message: boardMessage(boardState),
     disclaimer:
-      "Opportunities are informational only. They do not guarantee profit and are not executed orders. EARLY_SETUP is not a buy/sell instruction.",
+      "Opportunities are informational only — not executed orders. BLOCKED means technical confirmation exists but a final gate (e.g. R:R) prevents a trade. EARLY_SETUP is not a buy/sell instruction. Paper trading is simulated.",
   });
 }

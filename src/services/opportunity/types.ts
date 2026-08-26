@@ -266,6 +266,7 @@ export type OpportunityScanSummary = {
   topStocks: RankedOpportunity[];
   topCrypto: RankedOpportunity[];
   developing: RankedOpportunity[];
+  blocked: RankedOpportunity[];
   watchList: RankedOpportunity[];
   all: RankedOpportunity[];
   marketRegime: MarketRegime;

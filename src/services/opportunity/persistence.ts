@@ -44,6 +44,12 @@ async function symbolForAssetId(
 }
 
 function decisionFor(opportunity: RankedOpportunity): string {
+  if (opportunity.tradeStatus === "BLOCKED") {
+    // Preserve direction for UI while marking as non-actionable via tradeStatus.
+    if (opportunity.direction === "SHORT") return "SHORT_SETUP";
+    if (opportunity.direction === "LONG") return "BUY_SETUP";
+    return "WATCH";
+  }
   if (opportunity.tier === "NO_TRADE") return "NO_TRADE";
   if (opportunity.tier === "WATCH") return "WATCH";
   if (opportunity.direction === "SHORT") return "SHORT_SETUP";
@@ -75,11 +81,12 @@ export async function persistOpportunityScan(input: {
     .lte("created_at", `${input.briefDate}T23:59:59.999Z`);
 
   for (const opportunity of input.opportunities) {
-    if (
-      opportunity.tier !== "STRONG_OPPORTUNITY" &&
-      opportunity.tier !== "OPPORTUNITY" &&
-      opportunity.tier !== "WATCH"
-    ) {
+    const persistable =
+      opportunity.tradeStatus === "BLOCKED" ||
+      opportunity.tier === "STRONG_OPPORTUNITY" ||
+      opportunity.tier === "OPPORTUNITY" ||
+      opportunity.tier === "WATCH";
+    if (!persistable) {
       skipped += 1;
       continue;
     }
@@ -109,7 +116,12 @@ export async function persistOpportunityScan(input: {
         opportunity.invalidation !== null
           ? String(opportunity.invalidation)
           : null,
-      status: opportunity.tier === "WATCH" ? "NEW" : "VALID",
+      status:
+        opportunity.tradeStatus === "BLOCKED"
+          ? "NEW"
+          : opportunity.tier === "WATCH"
+            ? "NEW"
+            : "VALID",
       opportunity_score: opportunity.scores.opportunityScore,
       score_breakdown: {
         ...opportunity.scores,
@@ -201,7 +213,11 @@ function mapOpportunityRow(
 
   const tradeStatus: RankedOpportunity["tradeStatus"] =
     breakdown.tradeStatus ??
-    (quality === "STRONG" || quality === "CONFIRMED" ? "ELIGIBLE" : "NO_TRADE");
+    (breakdown.blockReason
+      ? "BLOCKED"
+      : quality === "STRONG" || quality === "CONFIRMED"
+        ? "ELIGIBLE"
+        : "NO_TRADE");
 
   return {
     symbol: asset.symbol,
@@ -303,7 +319,7 @@ function mapOpportunityRow(
         macdHistogram: null,
         atr14: null,
         timestamp: null,
-        reason: "DATA_UNAVAILABLE",
+        reason: "not_persisted",
       },
       entry: {
         timeframe: "1h",
@@ -319,11 +335,11 @@ function mapOpportunityRow(
         macdHistogram: null,
         atr14: null,
         timestamp: null,
-        reason: "DATA_UNAVAILABLE",
+        reason: "not_persisted",
       },
       aligned: false,
       score: multiTimeFrameScore,
-      notes: ["MTF details not in stored row"],
+      notes: ["MTF details not in stored row — not fabricated"],
     },
     reasons: row.reasons ?? [],
     risks: row.risks ?? [],

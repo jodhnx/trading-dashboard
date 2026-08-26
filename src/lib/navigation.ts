@@ -24,7 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/daily-brief", label: "Daily Brief", icon: CalendarClock },
   { href: "/opportunities", label: "Opportunities", icon: Target },
   { href: "/portfolio", label: "Portfolio", icon: Wallet },
-  { href: "/positions", label: "Positions", icon: Briefcase },
+  { href: "/positions", label: "Paper Positions", icon: Briefcase },
   { href: "/market", label: "Market", icon: LineChart },
   { href: "/news", label: "News", icon: Newspaper },
   { href: "/journal", label: "Journal", icon: BookOpen },

@@ -133,9 +133,29 @@ describe("environment resolution", () => {
     );
   });
 
-  it("fails clearly when twelve-data is forced without a key", () => {
+  it("rejects explicit mock market provider in production", () => {
     expect(() =>
-      resolveMarketProvider({ MARKET_DATA_PROVIDER: "twelve-data" }),
-    ).toThrow(/TWELVE_DATA_API_KEY/);
+      resolveMarketProvider({
+        MARKET_DATA_PROVIDER: "mock",
+        NODE_ENV: "production",
+      }),
+    ).toThrow(/not allowed in production/);
+  });
+
+  it("allows explicit mock market provider in development", () => {
+    const result = resolveMarketProvider({
+      MARKET_DATA_PROVIDER: "mock",
+      NODE_ENV: "development",
+    });
+    expect(result).toMatchObject({ providerId: "mock", isMock: true });
+  });
+
+  it("rejects explicit mock news provider in production", () => {
+    expect(() =>
+      resolveNewsProvider({
+        NEWS_PROVIDER: "mock",
+        NODE_ENV: "production",
+      }),
+    ).toThrow(/not allowed in production/);
   });
 });

@@ -80,6 +80,11 @@ export function resolveMarketProvider(env: RawEnv): MarketProviderResolution {
   const hasTwelveDataKey = Boolean(firstNonEmpty(env.TWELVE_DATA_API_KEY));
 
   if (requested === "mock") {
+    if ((env.NODE_ENV ?? process.env.NODE_ENV) === "production") {
+      throw new EnvValidationError(
+        "MARKET_DATA_PROVIDER=mock is not allowed in production. Use twelve-data or auto.",
+      );
+    }
     return {
       providerId: "mock",
       isMock: true,
@@ -137,6 +142,11 @@ export function resolveNewsProvider(env: RawEnv): NewsProviderResolution {
   );
 
   if (requested === "mock") {
+    if ((env.NODE_ENV ?? process.env.NODE_ENV) === "production") {
+      throw new EnvValidationError(
+        "NEWS_PROVIDER=mock is not allowed in production. Use newsapi or auto.",
+      );
+    }
     return {
       providerId: "mock",
       isMock: true,

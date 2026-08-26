@@ -206,7 +206,12 @@ function syncTierWithQuality(
   quality: SignalQuality,
   classifiedTier: RankedOpportunity["tier"],
   opportunityScore: number,
+  tradeStatus: RankedOpportunity["tradeStatus"],
 ): RankedOpportunity["tier"] {
+  // BLOCKED strong setups must remain visible on the board (not silently dropped).
+  if (tradeStatus === "BLOCKED") {
+    return "WATCH";
+  }
   if (quality === "STRONG") {
     return opportunityScore >= 80 ? "STRONG_OPPORTUNITY" : "OPPORTUNITY";
   }
@@ -263,6 +268,7 @@ function finalizeCandidate(input: {
     quality,
     classified.tier,
     scores.opportunityScore,
+    eligibility.tradeStatus,
   );
   const entryPlan = deriveEntryPlan({
     setup: draft.setup,
@@ -810,7 +816,7 @@ export async function scanDailyOpportunities(input: {
   const boardState = deriveBoardState({
     liveOrCached,
     confirmedOrStrong: strong + confirmed,
-    earlyOrWatch: earlySetup + watch,
+    earlyOrWatch: earlySetup + watch + partitioned.blocked.length,
   });
 
   const noTrade = finalized.filter(
@@ -858,6 +864,7 @@ export async function scanDailyOpportunities(input: {
     topStocks,
     topCrypto,
     developing: partitioned.developing,
+    blocked: partitioned.blocked,
     watchList: partitioned.watch,
     all: [...finalized].sort(compareOpportunityRank),
     marketRegime,

@@ -8,6 +8,14 @@ import {
 import { TOP_CRYPTO_LIMIT, TOP_STOCK_LIMIT } from "./types";
 
 function withInferredQuality(item: RankedOpportunity): RankedOpportunity {
+  // Never promote NO_TRADE / BLOCKED based on tier alone.
+  if (item.tradeStatus === "BLOCKED") {
+    return {
+      ...item,
+      quality: "NO_TRADE",
+      technicalConfirmation: item.technicalConfirmation || "STRONG",
+    };
+  }
   if (
     item.quality === "STRONG" ||
     item.quality === "CONFIRMED" ||
@@ -17,20 +25,23 @@ function withInferredQuality(item: RankedOpportunity): RankedOpportunity {
   ) {
     return item;
   }
+  if (item.quality === "NO_TRADE") {
+    return item;
+  }
   if (item.tier === "STRONG_OPPORTUNITY") {
-    return { ...item, quality: "STRONG" };
+    return { ...item, quality: "STRONG", tradeStatus: "ELIGIBLE" };
   }
   if (item.tier === "OPPORTUNITY") {
-    return { ...item, quality: "CONFIRMED" };
+    return { ...item, quality: "CONFIRMED", tradeStatus: "ELIGIBLE" };
   }
   if (item.tier === "WATCH") {
-    return { ...item, quality: "WATCH" };
+    return { ...item, quality: "WATCH", tradeStatus: "NO_TRADE" };
   }
   return item;
 }
 
 /**
- * Rebuild Phase 22 board slices from persisted rows (no provider calls).
+ * Rebuild Phase 22/23 board slices from persisted rows (no provider calls).
  */
 export function boardFromStored(opportunities: RankedOpportunity[]) {
   const inferred = opportunities.map(withInferredQuality).sort(compareOpportunityRank);
@@ -47,6 +58,7 @@ export function boardFromStored(opportunities: RankedOpportunity[]) {
       .filter(
         (item) =>
           item.assetClass !== "CRYPTO" &&
+          item.tradeStatus !== "BLOCKED" &&
           (item.quality === "STRONG" ||
             item.quality === "CONFIRMED" ||
             item.quality === "EARLY_SETUP" ||
@@ -57,6 +69,7 @@ export function boardFromStored(opportunities: RankedOpportunity[]) {
       .filter(
         (item) =>
           item.assetClass === "CRYPTO" &&
+          item.tradeStatus !== "BLOCKED" &&
           (item.quality === "STRONG" ||
             item.quality === "CONFIRMED" ||
             item.quality === "EARLY_SETUP" ||
@@ -64,6 +77,7 @@ export function boardFromStored(opportunities: RankedOpportunity[]) {
       )
       .slice(0, TOP_CRYPTO_LIMIT),
     developing: parts.developing,
+    blocked: parts.blocked,
     watch: parts.watch,
     whyNoBestStock:
       bestStock === null

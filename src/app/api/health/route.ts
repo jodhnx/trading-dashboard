@@ -1,6 +1,12 @@
 import { getMarketProviderInfo, getNewsProviderInfo, getPublicEnv } from "@/lib/env/public";
 import { EnvValidationError } from "@/lib/env/errors";
 import { isCronConfigured } from "@/services/pipeline/auth";
+import {
+  APP_VERSION,
+  RELEASE_NAME,
+  RELEASE_PHASE,
+  RELEASE_NOTES,
+} from "@/lib/release";
 
 function providerHealth(
   resolve: () => { providerId: string; isMock: boolean },
@@ -31,7 +37,10 @@ export async function GET() {
 
   return Response.json({
     ok: true,
-    phase: 22,
+    phase: RELEASE_PHASE,
+    version: APP_VERSION,
+    release: RELEASE_NAME,
+    note: RELEASE_NOTES,
     supabase: {
       configured: publicEnv.supabaseConfigured,
     },

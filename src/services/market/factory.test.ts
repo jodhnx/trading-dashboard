@@ -28,10 +28,19 @@ describe("provider factory resolution", () => {
     expect(result).toMatchObject({ providerId: "unavailable", isMock: false });
   });
 
-  it("uses mock only when explicitly requested", () => {
+  it("rejects explicit mock in production", () => {
+    expect(() =>
+      resolveMarketProvider({
+        MARKET_DATA_PROVIDER: "mock",
+        NODE_ENV: "production",
+      }),
+    ).toThrow(/not allowed in production/);
+  });
+
+  it("allows explicit mock in development", () => {
     const result = resolveMarketProvider({
       MARKET_DATA_PROVIDER: "mock",
-      NODE_ENV: "production",
+      NODE_ENV: "development",
     });
     expect(result).toMatchObject({ providerId: "mock", isMock: true });
   });

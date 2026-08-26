@@ -21,6 +21,10 @@ type OpportunityCandidate = {
   direction: string;
   quality: string;
   qualityLabel: string;
+  confirmation?: string;
+  tradeStatus?: string;
+  blockReason?: string | null;
+  technicalConfirmation?: string;
   opportunityScore: number;
   confidence: number;
   price: number | null;
@@ -39,7 +43,7 @@ type OpportunityCandidate = {
   dataStatus: string;
   marketRegime: string;
   reasons: string[];
-  confirmation: { explain: string } | null;
+  confirmationDetail?: { explain: string } | null;
   scannedAt: string;
 };
 
@@ -78,6 +82,7 @@ type OpportunitiesPayload = {
   topStocks: OpportunityCandidate[];
   topCrypto: OpportunityCandidate[];
   developing?: OpportunityCandidate[];
+  blocked?: OpportunityCandidate[];
   watch: OpportunityCandidate[];
   exitAlerts: ExitAlert[];
   whyNoSetup?: string[];
@@ -128,8 +133,9 @@ function CandidateCard({
   rank?: number;
   emphasize?: boolean;
 }) {
+  const blocked = item.tradeStatus === "BLOCKED";
   const highConfidence =
-    item.quality === "STRONG" || item.quality === "CONFIRMED";
+    !blocked && (item.quality === "STRONG" || item.quality === "CONFIRMED");
 
   return (
     <Card className={emphasize ? "space-y-3 border-accent/40" : "space-y-3"}>
@@ -155,7 +161,16 @@ function CandidateCard({
           >
             {item.direction}
           </Badge>
+          {item.confirmation || item.technicalConfirmation ? (
+            <Badge tone="accent">
+              {item.confirmation ?? item.technicalConfirmation}
+            </Badge>
+          ) : null}
           <Badge tone={qualityTone(item.quality)}>{item.quality}</Badge>
+          {blocked ? <Badge tone="warning">BLOCKED</Badge> : null}
+          {item.tradeStatus && !blocked ? (
+            <Badge tone="neutral">{item.tradeStatus}</Badge>
+          ) : null}
           <Badge tone="neutral">{item.assetType}</Badge>
         </div>
         <div className="text-right">
@@ -164,7 +179,17 @@ function CandidateCard({
         </div>
       </div>
 
-      {!highConfidence ? (
+      {blocked ? (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+          <p className="text-xs font-semibold">STRONG TECHNICAL SETUP — TRADE BLOCKED</p>
+          <p className="mt-1 text-[11px] text-muted">
+            Reason: {item.blockReason ?? "Final trade gate failed"} — not a buy/sell
+            instruction.
+          </p>
+        </div>
+      ) : null}
+
+      {!highConfidence && !blocked ? (
         <p className="text-xs font-medium text-amber-200/90">
           {item.qualityLabel}
         </p>
@@ -323,6 +348,7 @@ export function OpportunitiesWorkspace() {
   }
 
   const developing = data.developing ?? [];
+  const blocked = data.blocked ?? [];
   const rankedPreview = [...data.topStocks, ...data.topCrypto].slice(0, 3);
 
   return (
@@ -364,7 +390,8 @@ export function OpportunitiesWorkspace() {
         </Card>
       ) : null}
 
-      {data.blockerAggregate && data.boardState === "WATCH_ONLY" ? (
+      {data.blockerAggregate &&
+      (data.boardState === "WATCH_ONLY" || data.boardState === "NO_TRADE") ? (
         <Card>
           <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
             Signal blockers
@@ -417,6 +444,25 @@ export function OpportunitiesWorkspace() {
           <div className="grid gap-3">
             {developing.map((item) => (
               <CandidateCard key={`dev-${item.symbol}`} item={item} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          Blocked technical setups
+        </h3>
+        {blocked.length === 0 ? (
+          <Card>
+            <p className="text-sm text-muted">
+              No blocked setups (technical confirmation with a failed final gate).
+            </p>
+          </Card>
+        ) : (
+          <div className="grid gap-3">
+            {blocked.map((item) => (
+              <CandidateCard key={`blocked-${item.symbol}`} item={item} />
             ))}
           </div>
         )}
