@@ -10,12 +10,14 @@ import type { PositionExitAlert } from "@/services/exit/monitor";
 type OpportunitiesPayload = {
   ok: boolean;
   date: string;
+  boardState: "OPPORTUNITIES_AVAILABLE" | "WATCH_ONLY" | "NO_TRADE" | "DATA_INSUFFICIENT";
   marketRegime: string;
   noHighConfidence: boolean;
   topStocks: RankedOpportunity[];
   topCrypto: RankedOpportunity[];
   watch: RankedOpportunity[];
   exitAlerts: PositionExitAlert[];
+  message?: string;
   disclaimer: string;
 };
 
@@ -177,15 +179,47 @@ export function OpportunitiesWorkspace() {
         <p className="mt-1 text-sm text-muted">
           Regime: <span className="font-medium text-foreground">{data.marketRegime}</span>
           {" · "}
+          Board: <span className="font-medium text-foreground">{data.boardState}</span>
+          {" · "}
           Stored-first — no provider calls invent prices on this page.
         </p>
       </div>
 
-      {data.noHighConfidence ? (
+      {data.boardState === "DATA_INSUFFICIENT" ? (
         <Card>
-          <p className="text-sm font-semibold">NO HIGH-CONFIDENCE SETUPS TODAY</p>
+          <p className="text-sm font-semibold">DATA INSUFFICIENT</p>
           <p className="mt-1 text-xs text-muted">
-            This is a valid outcome. The scanner did not force a recommendation.
+            {data.message ??
+              "No usable LIVE/CACHED scan results for this UTC day. This is not the same as NO_TRADE."}
+          </p>
+        </Card>
+      ) : null}
+
+      {data.boardState === "NO_TRADE" ? (
+        <Card>
+          <p className="text-sm font-semibold">NO TRADE</p>
+          <p className="mt-1 text-xs text-muted">
+            {data.message ??
+              "Market data was analyzed; evidence did not clear the opportunity bar today."}
+          </p>
+        </Card>
+      ) : null}
+
+      {data.boardState === "WATCH_ONLY" ? (
+        <Card>
+          <p className="text-sm font-semibold">WATCH ONLY</p>
+          <p className="mt-1 text-xs text-muted">
+            {data.message ??
+              "Interesting candidates exist, but none cleared a full VALID LONG/SHORT opportunity."}
+          </p>
+        </Card>
+      ) : null}
+
+      {data.boardState === "OPPORTUNITIES_AVAILABLE" && data.noHighConfidence === false ? (
+        <Card>
+          <p className="text-sm font-semibold">OPPORTUNITIES AVAILABLE</p>
+          <p className="mt-1 text-xs text-muted">
+            Ranked candidates from the latest daily scan. Informational only — not orders.
           </p>
         </Card>
       ) : null}
@@ -227,15 +261,31 @@ export function OpportunitiesWorkspace() {
 
       <Section
         title="Top stock opportunities"
-        empty="NO HIGH-CONFIDENCE STOCK SETUPS"
+        empty={
+          data.boardState === "DATA_INSUFFICIENT"
+            ? "DATA INSUFFICIENT — no stored stock opportunities for this day"
+            : "NO HIGH-CONFIDENCE STOCK SETUPS"
+        }
         items={data.topStocks}
       />
       <Section
         title="Top crypto opportunities"
-        empty="NO HIGH-CONFIDENCE CRYPTO SETUPS"
+        empty={
+          data.boardState === "DATA_INSUFFICIENT"
+            ? "DATA INSUFFICIENT — no stored crypto opportunities for this day"
+            : "NO HIGH-CONFIDENCE CRYPTO SETUPS"
+        }
         items={data.topCrypto}
       />
-      <Section title="Watch" empty="No watchlist candidates" items={data.watch} />
+      <Section
+        title="Watch"
+        empty={
+          data.boardState === "DATA_INSUFFICIENT"
+            ? "DATA INSUFFICIENT — run the daily cron to populate the board"
+            : "No watchlist candidates"
+        }
+        items={data.watch}
+      />
 
       <p className="text-xs text-muted">{data.disclaimer}</p>
       <p className="text-xs text-muted">

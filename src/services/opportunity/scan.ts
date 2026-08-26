@@ -7,6 +7,7 @@ import { toTradingRiskSettings } from "@/lib/settings/schema";
 import { buildTradingSetup } from "@/engine/trading/setup";
 import { scoreSetup } from "@/engine/trading/score";
 import type { TradingSetup } from "@/engine/trading/types";
+import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import { DAILY_BRIEF_TIMEFRAME } from "@/services/daily-brief/types";
 import { OPPORTUNITY_UNIVERSE } from "./universe";
 import { detectMarketRegime } from "./regime";
@@ -15,31 +16,76 @@ import {
   classifyOpportunityTier,
   classifySetupType,
   computeOpportunityScore,
+  snapshotHasTechnicals,
 } from "./score";
 import { deriveEntryPlan } from "./entry";
 import {
   TOP_CRYPTO_LIMIT,
   TOP_STOCK_LIMIT,
   type MarketRegime,
+  type OpportunityCandidateDiagnostic,
   type OpportunityScanSummary,
   type RankedOpportunity,
+  type ScanBoardState,
 } from "./types";
 
 function isTradeableClass(assetClass: string): boolean {
   return assetClass === "STOCK" || assetClass === "ETF" || assetClass === "CRYPTO";
 }
 
+function deriveBoardState(input: {
+  liveOrCached: number;
+  strong: number;
+  opportunities: number;
+  watch: number;
+}): ScanBoardState {
+  if (input.liveOrCached === 0) {
+    return "DATA_INSUFFICIENT";
+  }
+  if (input.strong + input.opportunities > 0) {
+    return "OPPORTUNITIES_AVAILABLE";
+  }
+  if (input.watch > 0) {
+    return "WATCH_ONLY";
+  }
+  return "NO_TRADE";
+}
+
 type DraftCandidate = {
   asset: (typeof OPPORTUNITY_UNIVERSE)[number];
   setup: TradingSetup;
   technicalBreakdown: ReturnType<typeof scoreSetup>;
-  snapshot: {
-    currentPrice: number | null;
-    atr14: number | null;
-    dataStatus: string;
-  };
+  snapshot: TechnicalSnapshot;
   newsImpact: ReturnType<typeof scoreNewsForSymbol>;
 };
+
+function logSafeDiagnostics(diagnostics: OpportunityCandidateDiagnostic[]): void {
+  const interesting = diagnostics.filter(
+    (item) =>
+      item.dataStatus === "LIVE" ||
+      item.dataStatus === "CACHED" ||
+      item.dataStatus === "STALE",
+  );
+  console.info("[opportunity-scan] candidate summary", {
+    counted: diagnostics.length,
+    liveOrCached: diagnostics.filter(
+      (d) => d.dataStatus === "LIVE" || d.dataStatus === "CACHED",
+    ).length,
+    actionable: diagnostics.filter(
+      (d) => d.tier === "STRONG_OPPORTUNITY" || d.tier === "OPPORTUNITY",
+    ).length,
+    watch: diagnostics.filter((d) => d.tier === "WATCH").length,
+    sample: interesting.slice(0, 8).map((d) => ({
+      symbol: d.symbol,
+      dataStatus: d.dataStatus,
+      setupDirection: d.setupDirection,
+      setupStatus: d.setupStatus,
+      finalScore: d.finalScore,
+      tier: d.tier,
+      rejectionReason: d.rejectionReason,
+    })),
+  });
+}
 
 export async function scanDailyOpportunities(input: {
   userId: string;
@@ -88,6 +134,7 @@ export async function scanDailyOpportunities(input: {
   const drafts: DraftCandidate[] = [];
   let available = 0;
   let unavailable = 0;
+  let liveOrCached = 0;
 
   for (const asset of OPPORTUNITY_UNIVERSE) {
     try {
@@ -110,6 +157,12 @@ export async function scanDailyOpportunities(input: {
         continue;
       }
       available += 1;
+      if (
+        technical.snapshot.dataStatus === "LIVE" ||
+        technical.snapshot.dataStatus === "CACHED"
+      ) {
+        liveOrCached += 1;
+      }
 
       if (!isTradeableClass(asset.assetClass)) {
         continue;
@@ -120,7 +173,18 @@ export async function scanDailyOpportunities(input: {
         settings: risk,
         now,
       });
-      const technicalBreakdown = scoreSetup(technical.snapshot, setup.direction);
+      // Best directional technical score even when engine says NO_TRADE
+      const scoreLong = scoreSetup(technical.snapshot, "LONG");
+      const scoreShort = scoreSetup(technical.snapshot, "SHORT");
+      const technicalBreakdown =
+        setup.direction === "SHORT"
+          ? scoreShort
+          : setup.direction === "LONG"
+            ? scoreLong
+            : scoreLong.total >= scoreShort.total
+              ? scoreLong
+              : scoreShort;
+
       const newsImpact = scoreNewsForSymbol({
         symbol: asset.symbol,
         news: newsItems,
@@ -131,11 +195,7 @@ export async function scanDailyOpportunities(input: {
         asset,
         setup,
         technicalBreakdown,
-        snapshot: {
-          currentPrice: technical.snapshot.currentPrice,
-          atr14: technical.snapshot.atr14,
-          dataStatus: technical.snapshot.dataStatus,
-        },
+        snapshot: technical.snapshot,
         newsImpact,
       });
     } catch {
@@ -150,6 +210,7 @@ export async function scanDailyOpportunities(input: {
   }
 
   const marketRegime: MarketRegime = detectMarketRegime(technicalPool);
+  const diagnostics: OpportunityCandidateDiagnostic[] = [];
 
   const finalized: RankedOpportunity[] = drafts.map((draft) => {
     const scores = computeOpportunityScore({
@@ -160,36 +221,21 @@ export async function scanDailyOpportunities(input: {
       sentimentScore: draft.newsImpact.sentimentScore,
       marketRegime,
     });
-    const tier = classifyOpportunityTier({
+    const classified = classifyOpportunityTier({
       setup: draft.setup,
       opportunityScore: scores.opportunityScore,
       dataStatus: draft.snapshot.dataStatus,
+      hasTechnicals: snapshotHasTechnicals(draft.snapshot),
     });
     const entryPlan = deriveEntryPlan({
       setup: draft.setup,
       atr14: draft.snapshot.atr14,
     });
     const setupType = classifySetupType({
-      snapshot: {
-        momentum: "NEUTRAL",
-        trend: "NEUTRAL",
-        technicalCondition: "NEUTRAL",
-      } as never,
+      snapshot: draft.snapshot,
       setup: draft.setup,
       newsScore: draft.newsImpact.newsScore,
     });
-
-    // Prefer engine-derived setup type using real technical breakdown cues
-    const refinedSetupType =
-      draft.newsImpact.newsScore >= 75
-        ? "CATALYST"
-        : draft.technicalBreakdown.momentum >= 80
-          ? "MOMENTUM"
-          : draft.setup.direction === "NO_TRADE"
-            ? "NO_SETUP"
-            : draft.technicalBreakdown.trend >= 100
-              ? "TREND_CONTINUATION"
-              : "PULLBACK";
 
     const risks: string[] = [...draft.setup.rejectReasons];
     if (draft.snapshot.dataStatus === "STALE") {
@@ -198,27 +244,52 @@ export async function scanDailyOpportunities(input: {
     if (newsItems.length === 0) {
       risks.push("NEWS UNAVAILABLE — news score is neutral baseline");
     }
+    if (draft.setup.direction === "NO_TRADE" && classified.tier === "WATCH") {
+      risks.push("Engine NO_TRADE — watch only, no forced entry levels");
+    }
+
+    diagnostics.push({
+      symbol: draft.asset.symbol,
+      dataStatus: draft.snapshot.dataStatus,
+      setupDirection: draft.setup.direction,
+      setupStatus: draft.setup.status,
+      technicalScore: scores.technicalScore,
+      momentumScore: scores.momentumScore,
+      volumeScore: scores.volumeScore,
+      newsScore: scores.newsScore,
+      catalystScore: scores.catalystScore,
+      sentimentScore: scores.sentimentScore,
+      regimeScore: scores.marketRegimeScore,
+      riskRewardScore: scores.riskRewardScore,
+      finalScore: scores.opportunityScore,
+      tier: classified.tier,
+      rejectionReason: classified.rejectionReason,
+    });
+
+    const hasActionableLevels =
+      draft.setup.status === "VALID" &&
+      (draft.setup.direction === "LONG" || draft.setup.direction === "SHORT");
 
     return {
       symbol: draft.asset.symbol,
       name: draft.asset.name,
       assetClass: draft.asset.assetClass,
       direction: draft.setup.direction,
-      tier,
-      setupType: refinedSetupType === setupType ? setupType : refinedSetupType,
+      tier: classified.tier,
+      setupType,
       holdingHorizon: entryPlan.holdingHorizon,
       currentPrice: draft.snapshot.currentPrice,
-      entry: draft.setup.entry,
-      entryZoneLow: entryPlan.entryZoneLow,
-      entryZoneHigh: entryPlan.entryZoneHigh,
-      maxChase: entryPlan.maxChase,
-      stopLoss: draft.setup.stopLoss,
-      takeProfit1: draft.setup.takeProfit,
-      takeProfit2: entryPlan.takeProfit2,
-      invalidation: entryPlan.invalidation,
-      riskReward: draft.setup.riskReward,
-      positionSize: draft.setup.positionSize,
-      riskAmount: draft.setup.riskAmount,
+      entry: hasActionableLevels ? draft.setup.entry : null,
+      entryZoneLow: hasActionableLevels ? entryPlan.entryZoneLow : null,
+      entryZoneHigh: hasActionableLevels ? entryPlan.entryZoneHigh : null,
+      maxChase: hasActionableLevels ? entryPlan.maxChase : null,
+      stopLoss: hasActionableLevels ? draft.setup.stopLoss : null,
+      takeProfit1: hasActionableLevels ? draft.setup.takeProfit : null,
+      takeProfit2: hasActionableLevels ? entryPlan.takeProfit2 : null,
+      invalidation: hasActionableLevels ? entryPlan.invalidation : null,
+      riskReward: hasActionableLevels ? draft.setup.riskReward : null,
+      positionSize: hasActionableLevels ? draft.setup.positionSize : null,
+      riskAmount: hasActionableLevels ? draft.setup.riskAmount : null,
       scores,
       marketRegime,
       dataStatus: draft.snapshot.dataStatus as RankedOpportunity["dataStatus"],
@@ -233,6 +304,8 @@ export async function scanDailyOpportunities(input: {
     };
   });
 
+  logSafeDiagnostics(diagnostics);
+
   const actionable = finalized
     .filter(
       (item) =>
@@ -240,13 +313,28 @@ export async function scanDailyOpportunities(input: {
     )
     .sort((a, b) => b.scores.opportunityScore - a.scores.opportunityScore);
 
+  const watchList = finalized
+    .filter((item) => item.tier === "WATCH")
+    .sort((a, b) => b.scores.opportunityScore - a.scores.opportunityScore);
+
+  const strong = finalized.filter((i) => i.tier === "STRONG_OPPORTUNITY").length;
+  const opportunities = finalized.filter((i) => i.tier === "OPPORTUNITY").length;
+  const watch = watchList.length;
+  const boardState = deriveBoardState({
+    liveOrCached,
+    strong,
+    opportunities,
+    watch,
+  });
+
   return {
     scanned: OPPORTUNITY_UNIVERSE.length,
     available,
     unavailable,
-    strong: finalized.filter((i) => i.tier === "STRONG_OPPORTUNITY").length,
-    opportunities: finalized.filter((i) => i.tier === "OPPORTUNITY").length,
-    watch: finalized.filter((i) => i.tier === "WATCH").length,
+    liveOrCached,
+    strong,
+    opportunities,
+    watch,
     noTrade: finalized.filter((i) => i.tier === "NO_TRADE").length,
     topStocks: actionable
       .filter((item) => item.assetClass !== "CRYPTO")
@@ -259,5 +347,7 @@ export async function scanDailyOpportunities(input: {
     ),
     marketRegime,
     noHighConfidence: actionable.length === 0,
+    boardState,
+    diagnostics,
   };
 }

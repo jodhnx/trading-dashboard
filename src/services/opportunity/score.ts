@@ -1,6 +1,7 @@
 import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 import type { TradingSetup } from "@/engine/trading/types";
 import type { ScoreBreakdown } from "@/engine/trading/score";
+import { hasRequiredTechnicalData } from "@/engine/trading/validation";
 import {
   OPPORTUNITY_MIN,
   OPPORTUNITY_SCORE_WEIGHTS,
@@ -27,6 +28,10 @@ export function classifySetupType(input: {
   newsScore: number;
 }): SetupType {
   if (input.setup.direction === "NO_TRADE" || input.setup.status !== "VALID") {
+    if (input.newsScore >= 75) return "CATALYST";
+    if (input.snapshot.momentum === "STRONG" || input.snapshot.momentum === "WEAK") {
+      return "MOMENTUM";
+    }
     return "NO_SETUP";
   }
   if (input.newsScore >= 75) {
@@ -68,11 +73,16 @@ export function regimeAdjustmentScore(regime: MarketRegime, direction: string): 
     if (regime === "BULL" || regime === "RISK_ON") return 25;
     return 50;
   }
-  return 40;
+  // NO_TRADE / unknown direction — neutral regime contribution
+  return 50;
 }
 
+/**
+ * R:R component. Missing R:R (NO_TRADE / incomplete setup) must be neutral,
+ * not zero — otherwise watch candidates are artificially crushed.
+ */
 export function riskRewardScore(riskReward: number | null): number {
-  if (riskReward === null || !(riskReward > 0)) return 0;
+  if (riskReward === null || !(riskReward > 0)) return 50;
   if (riskReward >= 3) return 100;
   if (riskReward >= 2.5) return 90;
   if (riskReward >= 2) return 80;
@@ -125,28 +135,94 @@ export function computeOpportunityScore(input: {
   };
 }
 
+export type TierClassification = {
+  tier: OpportunityTier;
+  rejectionReason: string | null;
+};
+
+/**
+ * Tier rules (Trading Engine SCORE_WEIGHTS / ATR / RR unchanged):
+ * - UNAVAILABLE / MOCK → NO_TRADE (data insufficient for this asset)
+ * - STRONG / OPPORTUNITY require VALID LONG|SHORT + LIVE|CACHED
+ * - WATCH allowed for LIVE|CACHED|STALE when technicals exist and score ≥ WATCH_MIN
+ *   even if the engine says NO_TRADE (interesting, not actionable)
+ * - STALE never becomes STRONG/OPPORTUNITY
+ */
 export function classifyOpportunityTier(input: {
   setup: TradingSetup;
   opportunityScore: number;
   dataStatus: string;
-}): OpportunityTier {
+  hasTechnicals: boolean;
+}): TierClassification {
+  if (input.dataStatus === "UNAVAILABLE" || input.dataStatus === "MOCK") {
+    return {
+      tier: "NO_TRADE",
+      rejectionReason: `data_${input.dataStatus.toLowerCase()}`,
+    };
+  }
+
+  if (!input.hasTechnicals) {
+    return {
+      tier: "NO_TRADE",
+      rejectionReason: "insufficient_technicals",
+    };
+  }
+
+  const actionableSetup =
+    input.setup.status === "VALID" &&
+    (input.setup.direction === "LONG" || input.setup.direction === "SHORT");
+
+  const freshEnough =
+    input.dataStatus === "LIVE" || input.dataStatus === "CACHED";
+
+  if (actionableSetup && freshEnough) {
+    if (input.opportunityScore >= STRONG_OPPORTUNITY_MIN) {
+      return { tier: "STRONG_OPPORTUNITY", rejectionReason: null };
+    }
+    if (input.opportunityScore >= OPPORTUNITY_MIN) {
+      return { tier: "OPPORTUNITY", rejectionReason: null };
+    }
+    if (input.opportunityScore >= WATCH_MIN) {
+      return { tier: "WATCH", rejectionReason: null };
+    }
+    return {
+      tier: "NO_TRADE",
+      rejectionReason: "score_below_watch_min",
+    };
+  }
+
+  // STALE actionable setup → watch only (never treat as fresh opportunity)
+  if (actionableSetup && input.dataStatus === "STALE") {
+    if (input.opportunityScore >= WATCH_MIN) {
+      return { tier: "WATCH", rejectionReason: null };
+    }
+    return {
+      tier: "NO_TRADE",
+      rejectionReason: "stale_score_below_watch_min",
+    };
+  }
+
+  // Engine NO_TRADE / REJECTED but usable market data → relative watch list
   if (
-    input.dataStatus === "UNAVAILABLE" ||
-    input.dataStatus === "MOCK" ||
-    input.dataStatus === "STALE" ||
-    input.setup.direction === "NO_TRADE" ||
-    input.setup.status !== "VALID"
+    (freshEnough || input.dataStatus === "STALE") &&
+    input.opportunityScore >= WATCH_MIN
   ) {
-    return "NO_TRADE";
+    return { tier: "WATCH", rejectionReason: null };
   }
-  if (input.opportunityScore >= STRONG_OPPORTUNITY_MIN) {
-    return "STRONG_OPPORTUNITY";
+
+  if (input.setup.direction === "NO_TRADE") {
+    return {
+      tier: "NO_TRADE",
+      rejectionReason: "engine_no_trade_low_score",
+    };
   }
-  if (input.opportunityScore >= OPPORTUNITY_MIN) {
-    return "OPPORTUNITY";
-  }
-  if (input.opportunityScore >= WATCH_MIN) {
-    return "WATCH";
-  }
-  return "NO_TRADE";
+
+  return {
+    tier: "NO_TRADE",
+    rejectionReason: "setup_not_actionable",
+  };
+}
+
+export function snapshotHasTechnicals(snapshot: TechnicalSnapshot): boolean {
+  return hasRequiredTechnicalData(snapshot);
 }

@@ -50,9 +50,20 @@ export type PipelineResult = {
     scanned: number;
     topStocks: number;
     topCrypto: number;
+    watch: number;
     persisted: number;
     noHighConfidence: boolean;
     marketRegime: string;
+    boardState: string;
+    liveOrCached: number;
+    diagnosticsSample: Array<{
+      symbol: string;
+      dataStatus: string;
+      setupDirection: string;
+      finalScore: number;
+      tier: string;
+      rejectionReason: string | null;
+    }>;
   };
   brief: {
     usersProcessed: number;

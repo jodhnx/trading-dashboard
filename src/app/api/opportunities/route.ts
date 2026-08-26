@@ -1,9 +1,34 @@
 import { getAuthUser } from "@/lib/auth/session";
 import { listStoredOpportunities } from "@/services/opportunity/persistence";
+import { loadPipelineOpportunityBoardMeta } from "@/services/opportunity/board-meta";
 import { utcBriefDate } from "@/services/daily-brief/date";
 import { monitorOpenPositions } from "@/services/exit/monitor";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { normalizeInternalSymbol } from "@/services/market/symbols";
+import type { ScanBoardState } from "@/services/opportunity/types";
+
+function deriveBoardStateFromRows(input: {
+  topStocks: number;
+  topCrypto: number;
+  watch: number;
+}): ScanBoardState | null {
+  if (input.topStocks + input.topCrypto > 0) return "OPPORTUNITIES_AVAILABLE";
+  if (input.watch > 0) return "WATCH_ONLY";
+  return null;
+}
+
+function boardMessage(state: ScanBoardState): string {
+  switch (state) {
+    case "DATA_INSUFFICIENT":
+      return "No usable LIVE/CACHED market scan for this UTC day yet, or the scanner lacked technical data. This is not the same as NO_TRADE.";
+    case "NO_TRADE":
+      return "Market data was analyzed; no setup cleared the evidence bar today.";
+    case "WATCH_ONLY":
+      return "Interesting candidates exist, but none cleared a full VALID LONG/SHORT opportunity bar.";
+    case "OPPORTUNITIES_AVAILABLE":
+      return "Ranked opportunities available from the latest daily scan.";
+  }
+}
 
 export async function GET(request: Request) {
   const user = await getAuthUser();
@@ -34,6 +59,25 @@ export async function GET(request: Request) {
   );
   const watch = opportunities.filter((item) => item.tier === "WATCH");
 
+  const fromRows = deriveBoardStateFromRows({
+    topStocks: topStocks.length,
+    topCrypto: topCrypto.length,
+    watch: watch.length,
+  });
+
+  const pipelineMeta = fromRows
+    ? null
+    : await loadPipelineOpportunityBoardMeta(date);
+
+  const boardState: ScanBoardState =
+    fromRows ??
+    pipelineMeta?.boardState ??
+    (pipelineMeta?.scanned && (pipelineMeta.liveOrCached ?? 0) === 0
+      ? "DATA_INSUFFICIENT"
+      : pipelineMeta?.scanned
+        ? "NO_TRADE"
+        : "DATA_INSUFFICIENT");
+
   let exitAlerts: Awaited<ReturnType<typeof monitorOpenPositions>> = [];
   try {
     const supabase = await createServerSupabaseClient();
@@ -52,7 +96,10 @@ export async function GET(request: Request) {
         .select("id, symbol")
         .in("id", assetIds);
       const symbolById = new Map(
-        (assets ?? []).map((asset) => [asset.id, normalizeInternalSymbol(asset.symbol)]),
+        (assets ?? []).map((asset) => [
+          asset.id,
+          normalizeInternalSymbol(asset.symbol),
+        ]),
       );
 
       exitAlerts = await monitorOpenPositions({
@@ -76,12 +123,17 @@ export async function GET(request: Request) {
   return Response.json({
     ok: true,
     date,
-    marketRegime: opportunities[0]?.marketRegime ?? "UNKNOWN",
+    boardState,
+    marketRegime:
+      opportunities[0]?.marketRegime ??
+      pipelineMeta?.marketRegime ??
+      "UNKNOWN",
     noHighConfidence: topStocks.length === 0 && topCrypto.length === 0,
     topStocks,
     topCrypto,
     watch,
     exitAlerts,
+    message: boardMessage(boardState),
     disclaimer:
       "Opportunities are informational only. They do not guarantee profit and are not executed orders.",
   });

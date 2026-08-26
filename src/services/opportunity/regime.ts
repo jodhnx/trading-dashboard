@@ -4,7 +4,8 @@ import { REGIME_BENCHMARKS } from "./universe";
 
 /**
  * Deterministic market regime from benchmark technicals.
- * Uses SPY/QQQ/IWM/BTC/ETH when present; falls back to provided technicals.
+ * LIVE, CACHED, and STALE snapshots with a known trend are usable.
+ * UNAVAILABLE / MOCK / UNKNOWN trend are excluded — never invent a regime.
  */
 export function detectMarketRegime(
   technicals: Array<Pick<BriefTechnicalItem, "symbol" | "trend" | "volatility" | "dataStatus">>,
@@ -22,10 +23,12 @@ export function detectMarketRegime(
   const benchmarks = usable.filter((item) =>
     (REGIME_BENCHMARKS as readonly string[]).includes(item.symbol),
   );
-  const pool = benchmarks.length >= 2 ? benchmarks : usable;
+  // Prefer benchmarks when at least one is usable (was requiring 2 — caused UNKNOWN
+  // when only SPY/QQQ were LIVE with trends among sparse data).
+  const pool = benchmarks.length >= 1 ? benchmarks : usable;
 
   const highVol = pool.filter((item) => item.volatility === "HIGH").length;
-  if (highVol >= Math.ceil(pool.length / 2)) {
+  if (highVol >= Math.ceil(pool.length / 2) && pool.length >= 2) {
     return "HIGH_VOLATILITY";
   }
 
@@ -33,10 +36,10 @@ export function detectMarketRegime(
   const bearish = pool.filter((item) => item.trend === "BEARISH").length;
   const neutral = pool.filter((item) => item.trend === "NEUTRAL").length;
 
-  if (bullish >= pool.length * 0.6) {
+  if (bullish >= Math.max(1, pool.length * 0.6)) {
     return "BULL";
   }
-  if (bearish >= pool.length * 0.6) {
+  if (bearish >= Math.max(1, pool.length * 0.6)) {
     return "BEAR";
   }
   if (neutral >= pool.length * 0.5) {

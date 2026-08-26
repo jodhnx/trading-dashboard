@@ -58,6 +58,33 @@ export const WATCH_MIN = 50;
 export const TOP_STOCK_LIMIT = 5;
 export const TOP_CRYPTO_LIMIT = 5;
 
+/** Board-level outcome — never confuse scanner failure with genuine NO_TRADE. */
+export const SCAN_BOARD_STATES = [
+  "OPPORTUNITIES_AVAILABLE",
+  "WATCH_ONLY",
+  "NO_TRADE",
+  "DATA_INSUFFICIENT",
+] as const;
+export type ScanBoardState = (typeof SCAN_BOARD_STATES)[number];
+
+export type OpportunityCandidateDiagnostic = {
+  symbol: string;
+  dataStatus: string;
+  setupDirection: string;
+  setupStatus: string;
+  technicalScore: number;
+  momentumScore: number;
+  volumeScore: number;
+  newsScore: number;
+  catalystScore: number;
+  sentimentScore: number;
+  regimeScore: number;
+  riskRewardScore: number;
+  finalScore: number;
+  tier: OpportunityTier;
+  rejectionReason: string | null;
+};
+
 export type OpportunityScoreBreakdown = {
   technicalScore: number;
   momentumScore: number;
@@ -104,6 +131,7 @@ export type OpportunityScanSummary = {
   scanned: number;
   available: number;
   unavailable: number;
+  liveOrCached: number;
   strong: number;
   opportunities: number;
   watch: number;
@@ -113,4 +141,6 @@ export type OpportunityScanSummary = {
   all: RankedOpportunity[];
   marketRegime: MarketRegime;
   noHighConfidence: boolean;
+  boardState: ScanBoardState;
+  diagnostics: OpportunityCandidateDiagnostic[];
 };

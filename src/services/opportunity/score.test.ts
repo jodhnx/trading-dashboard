@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { longSetup, liveSnapshot } from "@/ai/test-fixtures";
 import { scoreSetup } from "@/engine/trading/score";
+import { emptyTradingSetup } from "@/engine/trading/setup";
+import { TEST_SETTINGS } from "@/ai/test-fixtures";
 import {
   classifyOpportunityTier,
   computeOpportunityScore,
@@ -28,46 +30,87 @@ describe("opportunity scoring", () => {
     expect(scores.technicalScore).toBe(breakdown.total);
   });
 
-  it("does not force opportunities on NO_TRADE / unavailable data", () => {
+  it("does not create STRONG/OPPORTUNITY for UNAVAILABLE data", () => {
     const setup = longSetup();
-    expect(
-      classifyOpportunityTier({
-        setup: { ...setup, direction: "NO_TRADE", status: "INVALID" },
-        opportunityScore: 90,
-        dataStatus: "LIVE",
-      }),
-    ).toBe("NO_TRADE");
     expect(
       classifyOpportunityTier({
         setup,
         opportunityScore: 90,
         dataStatus: "UNAVAILABLE",
-      }),
+        hasTechnicals: true,
+      }).tier,
     ).toBe("NO_TRADE");
   });
 
-  it("scores risk/reward transparently", () => {
-    expect(riskRewardScore(3)).toBe(100);
+  it("allows WATCH for LIVE NO_TRADE when score clears watch min", () => {
+    const snapshot = liveSnapshot();
+    const setup = emptyTradingSetup(snapshot, TEST_SETTINGS, {
+      direction: "NO_TRADE",
+      status: "REJECTED",
+      score: 55,
+    });
+    const result = classifyOpportunityTier({
+      setup,
+      opportunityScore: 58,
+      dataStatus: "LIVE",
+      hasTechnicals: true,
+    });
+    expect(result.tier).toBe("WATCH");
+  });
+
+  it("requires VALID LONG/SHORT + LIVE/CACHED for OPPORTUNITY tier", () => {
+    const setup = longSetup();
+    expect(setup.status).toBe("VALID");
+    expect(
+      classifyOpportunityTier({
+        setup,
+        opportunityScore: 70,
+        dataStatus: "LIVE",
+        hasTechnicals: true,
+      }).tier,
+    ).toBe("OPPORTUNITY");
+    expect(
+      classifyOpportunityTier({
+        setup,
+        opportunityScore: 70,
+        dataStatus: "STALE",
+        hasTechnicals: true,
+      }).tier,
+    ).toBe("WATCH");
+  });
+
+  it("treats missing risk/reward as neutral, not zero", () => {
+    expect(riskRewardScore(null)).toBe(50);
     expect(riskRewardScore(2)).toBe(80);
-    expect(riskRewardScore(null)).toBe(0);
   });
 });
 
 describe("market regime", () => {
-  it("detects bull / bear / high volatility", () => {
+  it("detects bull from a single usable benchmark", () => {
     expect(
       detectMarketRegime([
         { symbol: "SPY", trend: "BULLISH", volatility: "NORMAL", dataStatus: "LIVE" },
-        { symbol: "QQQ", trend: "BULLISH", volatility: "NORMAL", dataStatus: "LIVE" },
-        { symbol: "IWM", trend: "BULLISH", volatility: "NORMAL", dataStatus: "LIVE" },
+        { symbol: "AAPL", trend: "UNKNOWN", volatility: "NORMAL", dataStatus: "UNAVAILABLE" },
       ]),
     ).toBe("BULL");
+  });
+
+  it("uses STALE benchmarks with known trends", () => {
     expect(
       detectMarketRegime([
-        { symbol: "SPY", trend: "BEARISH", volatility: "HIGH", dataStatus: "LIVE" },
-        { symbol: "QQQ", trend: "BEARISH", volatility: "HIGH", dataStatus: "LIVE" },
+        { symbol: "SPY", trend: "BEARISH", volatility: "NORMAL", dataStatus: "STALE" },
+        { symbol: "QQQ", trend: "BEARISH", volatility: "NORMAL", dataStatus: "STALE" },
       ]),
-    ).toBe("HIGH_VOLATILITY");
+    ).toBe("BEAR");
+  });
+
+  it("returns UNKNOWN when no usable trends exist", () => {
+    expect(
+      detectMarketRegime([
+        { symbol: "SPY", trend: "UNKNOWN", volatility: "NORMAL", dataStatus: "LIVE" },
+        { symbol: "QQQ", trend: "BULLISH", volatility: "NORMAL", dataStatus: "UNAVAILABLE" },
+      ]),
+    ).toBe("UNKNOWN");
   });
 });
 

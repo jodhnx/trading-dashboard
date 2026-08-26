@@ -79,9 +79,28 @@ export async function runDailyPipeline(input?: {
           scanned: opp.summary.scanned,
           topStocks: opp.summary.topStocks.length,
           topCrypto: opp.summary.topCrypto.length,
+          watch: opp.summary.watch,
           persisted: opportunityTotals.persisted + opp.persisted.inserted,
           noHighConfidence: opp.summary.noHighConfidence,
           marketRegime: opp.summary.marketRegime,
+          boardState: opp.summary.boardState,
+          liveOrCached: opp.summary.liveOrCached,
+          diagnosticsSample: opp.summary.diagnostics
+            .filter(
+              (d) =>
+                d.dataStatus === "LIVE" ||
+                d.dataStatus === "CACHED" ||
+                d.dataStatus === "STALE",
+            )
+            .slice(0, 10)
+            .map((d) => ({
+              symbol: d.symbol,
+              dataStatus: d.dataStatus,
+              setupDirection: d.setupDirection,
+              finalScore: d.finalScore,
+              tier: d.tier,
+              rejectionReason: d.rejectionReason,
+            })),
         };
       } catch (error) {
         console.error("[pipeline] opportunity scan failed", {
@@ -249,9 +268,13 @@ function emptyOpportunities(): PipelineResult["opportunities"] {
     scanned: 0,
     topStocks: 0,
     topCrypto: 0,
+    watch: 0,
     persisted: 0,
     noHighConfidence: true,
     marketRegime: "UNKNOWN",
+    boardState: "DATA_INSUFFICIENT",
+    liveOrCached: 0,
+    diagnosticsSample: [],
   };
 }
 

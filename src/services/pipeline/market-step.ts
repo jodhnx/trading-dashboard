@@ -28,6 +28,8 @@ function bumpStatus(counts: MarketWarmResult["counts"], status: DataStatus | "UN
 
 /**
  * Warm shared market cache for the opportunity universe once per pipeline run.
+ * Counts reflect quote freshness (legacy). Each asset also records technicalStatus
+ * for opportunity eligibility — quotes LIVE ≠ technicals LIVE.
  */
 export async function warmMarketData(): Promise<MarketWarmResult> {
   const market = createMarketDataService();
