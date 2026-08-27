@@ -142,9 +142,9 @@ function baseCandidate(overrides: Partial<RankedOpportunity> = {}): RankedOpport
 }
 
 describe("phase27 release", () => {
-  it("reports phase 27 backend intelligence upgrade", () => {
-    expect(RELEASE_PHASE).toBe(27);
-    expect(APP_VERSION).toBe("0.27.0");
+  it("reports phase 28 market research terminal", () => {
+    expect(RELEASE_PHASE).toBe(28);
+    expect(APP_VERSION).toBe("0.28.0");
   });
 });
 

@@ -17,7 +17,8 @@ export type TableSortKey =
   | "newsRecency"
   | "riskReward"
   | "symbol"
-  | "discovery";
+  | "discovery"
+  | "freshness";
 
 export type TableFilter =
   | "ALL"
@@ -29,6 +30,8 @@ export type TableFilter =
   | "SPECULATIVE"
   | "WATCH"
   | "BLOCKED"
+  | "NO_TRADE"
+  | "DATA_SKIP"
   | "LOW_RISK"
   | "MEDIUM_RISK"
   | "HIGH_RISK"
@@ -37,11 +40,14 @@ export type TableFilter =
   | "SHORT"
   | "NEWS_POSITIVE"
   | "NEWS_NEGATIVE"
+  | "NEWS_MIXED"
   | "HIGH_NEWS_IMPACT"
   | "RECENT_NEWS"
   | "HIGH_SCORE"
   | "FRESH_DATA"
-  | "DISCOVERED";
+  | "DISCOVERED"
+  | "BREAKOUT"
+  | "UNUSUAL_VOLUME";
 
 export function freshnessRank(value: string | undefined): number {
   switch (value) {
@@ -139,6 +145,12 @@ export function sortCandidates(
             (a.screenScore ?? Number.NEGATIVE_INFINITY) ||
           compareTableRank(a, b),
       );
+    case "freshness":
+      return sorted.sort(
+        (a, b) =>
+          freshnessRank(b.dataFreshness) - freshnessRank(a.dataFreshness) ||
+          compareTableRank(a, b),
+      );
     default:
       return sorted.sort(compareTableRank);
   }
@@ -164,6 +176,10 @@ export function matchesTableFilter(item: RankedOpportunity, filter: TableFilter)
       return item.boardQuality === "WATCH";
     case "BLOCKED":
       return item.tradeStatus === "BLOCKED";
+    case "NO_TRADE":
+      return item.boardQuality === "NO_TRADE" || item.quality === "NO_TRADE";
+    case "DATA_SKIP":
+      return item.boardQuality === "DATA_SKIP" || item.quality === "DATA_INSUFFICIENT";
     case "LOW_RISK":
       return item.riskLevel === "LOW";
     case "MEDIUM_RISK":
@@ -180,6 +196,8 @@ export function matchesTableFilter(item: RankedOpportunity, filter: TableFilter)
       return newsSentimentLabel(item.scores.sentimentScore) === "POSITIVE";
     case "NEWS_NEGATIVE":
       return newsSentimentLabel(item.scores.sentimentScore) === "NEGATIVE";
+    case "NEWS_MIXED":
+      return newsSentimentLabel(item.scores.sentimentScore) === "MIXED";
     case "HIGH_NEWS_IMPACT":
       return newsImpactLabel(item.scores.newsScore) === "HIGH";
     case "RECENT_NEWS": {
@@ -196,6 +214,12 @@ export function matchesTableFilter(item: RankedOpportunity, filter: TableFilter)
       );
     case "DISCOVERED":
       return (item.discoveryTags?.length ?? 0) > 0;
+    case "BREAKOUT":
+      return (item.discoveryTags ?? []).some((tag) => tag.toUpperCase() === "BREAKOUT");
+    case "UNUSUAL_VOLUME":
+      return (item.discoveryTags ?? []).some(
+        (tag) => tag.toUpperCase() === "UNUSUAL_VOLUME",
+      );
     default:
       return true;
   }
@@ -205,11 +229,18 @@ export function filterCandidates(
   items: RankedOpportunity[],
   filters: TableFilter[],
   search: string,
+  sector?: string | null,
 ): RankedOpportunity[] {
   const active = filters.filter((f) => f !== "ALL");
   const query = search.trim().toUpperCase();
+  const sectorQuery = sector?.trim();
   return items.filter((item) => {
-    if (query && !item.symbol.toUpperCase().includes(query)) return false;
+    if (query && !item.symbol.toUpperCase().includes(query) && !item.name.toUpperCase().includes(query)) {
+      return false;
+    }
+    if (sectorQuery) {
+      if ((item.sector ?? "Unknown") !== sectorQuery) return false;
+    }
     if (active.length === 0) return true;
     return active.every((filter) => matchesTableFilter(item, filter));
   });

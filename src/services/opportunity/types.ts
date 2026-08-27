@@ -256,6 +256,8 @@ export type RankedOpportunity = {
   newsUpdatedAt?: string | null;
   aiAnalyzedAt?: string | null;
   aiResearch?: import("./ai-research-shared").AiResearchResult | null;
+  sector?: string | null;
+  sectorCategory?: string | null;
 };
 
 export type FreshnessCounts = {

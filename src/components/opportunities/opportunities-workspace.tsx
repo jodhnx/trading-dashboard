@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import type { OpportunityCandidate } from "@/services/opportunity/present";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import type { OpportunityCandidate } from "@/services/opportunity/present";
-import {
-  ActionableSetupsSection,
-  DailySummaryBar,
-} from "@/components/opportunities/daily-summary-bar";
+import { MarketIntelligenceHeader } from "@/components/opportunities/market-intelligence-header";
 import { OpportunityScreener } from "@/components/opportunities/opportunity-screener";
+import { TopCandidatesSection } from "@/components/opportunities/top-candidates-section";
+import {
+  BlockedAndDataQualitySection,
+  DiscoveredTodaySection,
+  SectorConcentrationBanner,
+} from "@/components/opportunities/research-sections";
+import { ActionableSetupsSection } from "@/components/opportunities/daily-summary-bar";
 
 type OpportunitiesPayload = {
   ok: boolean;
@@ -17,6 +20,9 @@ type OpportunitiesPayload = {
   boardState: string;
   marketRegime: string;
   scanTimestamp: string | null;
+  lastMarketUpdate?: string | null;
+  lastNewsUpdate?: string | null;
+  lastAiUpdate?: string | null;
   noHighConfidence: boolean;
   bestStock: OpportunityCandidate | null;
   bestCrypto: OpportunityCandidate | null;
@@ -25,12 +31,19 @@ type OpportunitiesPayload = {
   actionableTrades: OpportunityCandidate[];
   candidates: OpportunityCandidate[];
   discovered: OpportunityCandidate[];
+  blocked?: OpportunityCandidate[];
+  dataSkipped?: OpportunityCandidate[];
+  speculative?: OpportunityCandidate[];
+  developing?: OpportunityCandidate[];
+  sectorExposureWarnings?: Array<{
+    sector: string;
+    symbols: string[];
+    message: string;
+    measuredCorrelation: false;
+  }>;
   summary: {
     assetsInCatalog?: number;
     assetsEvaluated?: number;
-    stocksAnalyzed?: number;
-    cryptoAnalyzed?: number;
-    etfAnalyzed?: number;
     actionableTrades?: number;
     developing?: number;
     speculative?: number;
@@ -38,7 +51,9 @@ type OpportunitiesPayload = {
     blocked?: number;
     discovered?: number;
     dataSkipped?: number;
-    highNewsImpact?: number;
+    lastMarketUpdate?: string | null;
+    lastNewsUpdate?: string | null;
+    lastAiUpdate?: string | null;
     marketRegime?: string;
     freshness?: {
       live?: number;
@@ -53,71 +68,32 @@ type OpportunitiesPayload = {
   schedulerNote?: string;
 };
 
-function SignalCard({
-  title,
-  emptyLabel,
-  item,
-  emptyReason,
-}: {
-  title: string;
-  emptyLabel: string;
-  item: OpportunityCandidate | null;
-  emptyReason: string | null | undefined;
-}) {
-  if (!item || !item.actionable) {
-    return (
-      <Card className="space-y-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
-          {title}
-        </p>
-        <p className="text-sm font-semibold">NO CONFIRMED {emptyLabel} SETUP</p>
-        <p className="text-xs text-muted">
-          {emptyReason ?? "WAIT — no candidate currently meets all trading requirements."}
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="space-y-3 border-accent/40">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
-        {title}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href={`/market/${encodeURIComponent(item.symbol)}`}
-          className="font-mono text-xl font-semibold hover:text-accent"
-        >
-          {item.symbol}
-        </Link>
-        <Badge tone={item.direction === "LONG" ? "positive" : "negative"}>
-          {item.direction}
-        </Badge>
-        <Badge tone="positive">{item.quality}</Badge>
-        <Badge tone="accent">ELIGIBLE</Badge>
-        <Badge tone="neutral">{item.dataQuality}</Badge>
-      </div>
-      <p className="text-sm font-semibold text-accent">{item.actionLabel}</p>
-      <p className="text-xs text-muted">{item.newsSummary.impactExplanation}</p>
-    </Card>
-  );
+function pickActionable(
+  trades: OpportunityCandidate[],
+  assetType: OpportunityCandidate["assetType"],
+): OpportunityCandidate | null {
+  return trades.find((item) => item.actionable && item.assetType === assetType) ?? null;
 }
 
 export function OpportunitiesWorkspace() {
   const [data, setData] = useState<OpportunitiesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paperSymbols, setPaperSymbols] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch("/api/opportunities");
-        const payload = (await response.json().catch(() => null)) as
+        const [oppResponse, paperResponse] = await Promise.all([
+          fetch("/api/opportunities"),
+          fetch("/api/paper"),
+        ]);
+        const payload = (await oppResponse.json().catch(() => null)) as
           | OpportunitiesPayload
           | { error?: string }
           | null;
         if (cancelled) return;
-        if (!response.ok || !payload || !("ok" in payload) || !payload.ok) {
+        if (!oppResponse.ok || !payload || !("ok" in payload) || !payload.ok) {
           setError(
             payload && "error" in payload
               ? payload.error ?? "Failed to load opportunities"
@@ -126,6 +102,15 @@ export function OpportunitiesWorkspace() {
           return;
         }
         setData(payload);
+
+        if (paperResponse.ok) {
+          const paper = (await paperResponse.json().catch(() => null)) as {
+            account?: { openPositions?: Array<{ symbol: string }> };
+          } | null;
+          setPaperSymbols(
+            paper?.account?.openPositions?.map((position) => position.symbol) ?? [],
+          );
+        }
       } catch {
         if (!cancelled) setError("Failed to load opportunities");
       }
@@ -134,6 +119,57 @@ export function OpportunitiesWorkspace() {
       cancelled = true;
     };
   }, []);
+
+  const mergedWarnings = useMemo(() => {
+    if (!data) return [];
+    const warnings = [...(data.sectorExposureWarnings ?? [])];
+    if (paperSymbols.length >= 2) {
+      const paperCandidates = data.candidates.filter((item) =>
+        paperSymbols.includes(item.symbol),
+      );
+      const sectors = new Map<string, string[]>();
+      for (const item of paperCandidates) {
+        const sector = item.sector ?? "Unknown";
+        const list = sectors.get(sector) ?? [];
+        list.push(item.symbol);
+        sectors.set(sector, list);
+      }
+      for (const [sector, symbols] of sectors) {
+        if (symbols.length >= 2) {
+          warnings.push({
+            sector,
+            symbols,
+            message: `Paper portfolio overlap in ${sector}. Category exposure warning only — not measured price correlation.`,
+            measuredCorrelation: false as const,
+          });
+        }
+      }
+    }
+    return warnings;
+  }, [data, paperSymbols]);
+
+  const bestActionableStock = useMemo(
+    () => (data ? pickActionable(data.actionableTrades, "STOCK") : null),
+    [data],
+  );
+  const bestActionableCrypto = useMemo(
+    () => (data ? pickActionable(data.actionableTrades, "CRYPTO") : null),
+    [data],
+  );
+  const highRiskCandidate = useMemo(() => {
+    if (!data) return null;
+    return (
+      data.speculative?.[0] ??
+      data.candidates.find(
+        (item) => item.riskLevel === "EXTREME" || item.riskLevel === "HIGH",
+      ) ??
+      null
+    );
+  }, [data]);
+  const developingSetup = useMemo(() => {
+    if (!data) return null;
+    return data.developing?.[0] ?? data.candidates.find((item) => item.boardQuality === "DEVELOPING") ?? null;
+  }, [data]);
 
   if (error) {
     return (
@@ -146,66 +182,59 @@ export function OpportunitiesWorkspace() {
   if (!data) {
     return (
       <Card>
-        <p className="text-sm text-muted">Loading daily market screener…</p>
+        <p className="text-sm text-muted">Loading market research terminal…</p>
       </Card>
     );
   }
 
   return (
     <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Opportunities</h1>
-        <p className="text-sm text-muted">
-          Daily market intelligence screener for stocks, ETFs and crypto — stored scan
-          data only, {data.date} UTC.
+      <header className="space-y-2">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-accent">
+          AI market research terminal
         </p>
-        <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight">Opportunities</h1>
+        <p className="max-w-3xl text-sm text-muted">
+          Professional research view over stored daily scan data for stocks, ETFs and
+          crypto. Informational only — not investment advice and not guaranteed profits.
+        </p>
+        <div className="flex flex-wrap gap-2">
           <Badge tone="neutral">{data.boardState.replace(/_/g, " ")}</Badge>
-          <Badge tone="accent">{data.marketRegime}</Badge>
+          <Badge tone="accent">{data.marketRegime.replace(/_/g, " ")}</Badge>
+          <Badge tone="neutral">{data.date} UTC</Badge>
         </div>
       </header>
 
-      <DailySummaryBar
+      <MarketIntelligenceHeader
         summary={data.summary}
         marketRegime={data.marketRegime}
         scanTimestamp={data.scanTimestamp}
+        lastMarketUpdate={data.lastMarketUpdate ?? data.summary.lastMarketUpdate}
+        lastNewsUpdate={data.lastNewsUpdate ?? data.summary.lastNewsUpdate}
+        boardState={data.boardState}
+      />
+
+      <SectorConcentrationBanner warnings={mergedWarnings} />
+
+      <TopCandidatesSection
+        bestActionableStock={bestActionableStock}
+        bestActionableCrypto={bestActionableCrypto}
+        highRiskCandidate={highRiskCandidate}
+        developingSetup={developingSetup}
+        whyNoBestStock={data.whyNoBestStock}
+        whyNoBestCrypto={data.whyNoBestCrypto}
       />
 
       <ActionableSetupsSection trades={data.actionableTrades} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SignalCard
-          title="Best stock"
-          emptyLabel="STOCK"
-          item={data.bestStock}
-          emptyReason={data.whyNoBestStock}
-        />
-        <SignalCard
-          title="Best crypto"
-          emptyLabel="CRYPTO"
-          item={data.bestCrypto}
-          emptyReason={data.whyNoBestCrypto}
-        />
-      </div>
-
       <OpportunityScreener candidates={data.candidates} />
 
-      {data.discovered.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold">Discovered today</h2>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {data.discovered.slice(0, 9).map((item) => (
-              <Card key={item.symbol} className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-semibold">{item.symbol}</span>
-                  <Badge tone="warning">{item.boardQualityLabel ?? "DISCOVERED"}</Badge>
-                </div>
-                <p className="text-xs text-muted">{item.whyRanked}</p>
-              </Card>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <DiscoveredTodaySection items={data.discovered} />
+
+      <BlockedAndDataQualitySection
+        blocked={data.blocked ?? []}
+        dataSkipped={data.dataSkipped ?? []}
+      />
 
       <Card className="space-y-2">
         <p className="text-xs text-muted">{data.message}</p>
@@ -214,8 +243,9 @@ export function OpportunitiesWorkspace() {
           <p className="text-[11px] text-muted">{data.schedulerNote}</p>
         ) : null}
         <p className="text-[11px] text-muted">
-          Stored scan — never invents prices on this page. Paper exit monitoring runs
-          separately on Paper Positions.
+          Stored scan only — sorting, filtering and detail panels never call market
+          providers. Paper exit monitoring is separate on Paper Positions and is not
+          continuous real-time on Hobby cron.
         </p>
       </Card>
     </div>

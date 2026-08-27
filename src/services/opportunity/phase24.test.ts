@@ -154,7 +154,7 @@ function eligibleLevels(
 
 describe("phase24 release", () => {
   it("release moved to phase 25 — see phase25.test.ts", () => {
-    expect(RELEASE_PHASE).toBe(27);
+    expect(RELEASE_PHASE).toBe(28);
   });
 });
 

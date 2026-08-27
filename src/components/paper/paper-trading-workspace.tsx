@@ -227,8 +227,12 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
 
       <section className="space-y-3">
         <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-          Open PAPER Positions
+          Open paper positions
         </h3>
+        <p className="text-[11px] text-muted">
+          Exit status reflects the last exit monitor check — not continuous live
+          monitoring unless an external scheduler is configured.
+        </p>
         {account.openPositions.length === 0 ? (
           <EmptyState
             title="NO OPEN POSITIONS"

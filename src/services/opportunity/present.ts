@@ -12,6 +12,8 @@ import {
   deriveMissingConfirmation,
   deriveWhyRanked,
 } from "./table-utils";
+import { sectorExposureForSymbol } from "./sector-exposure";
+import { deriveAiView } from "./ui-utils";
 
 /** Stable API candidate shape for opportunities board and table payloads. */
 export function toOpportunityCandidate(item: RankedOpportunity, rank?: number) {
@@ -27,6 +29,12 @@ export function toOpportunityCandidate(item: RankedOpportunity, rank?: number) {
   const action = deriveTradeAction(item);
   const actionable = isActionableOpportunity(item);
   const news = buildNewsPresentation(item);
+  const exposure = sectorExposureForSymbol(item.symbol);
+  const aiView = deriveAiView(item);
+  const whyRanked =
+    item.aiResearch && !item.aiResearch.unavailable
+      ? item.aiResearch.whyRanked || deriveWhyRanked(item)
+      : deriveWhyRanked(item);
 
   return {
     rank: rank ?? null,
@@ -77,7 +85,15 @@ export function toOpportunityCandidate(item: RankedOpportunity, rank?: number) {
     thesis: item.thesis,
     waitingFor: item.waitingFor,
     missingConfirmation: deriveMissingConfirmation(item),
-    whyRanked: deriveWhyRanked(item),
+    whyRanked,
+    sector: exposure.sector,
+    sectorCategory: exposure.category,
+    marketUpdatedAt: item.marketUpdatedAt ?? null,
+    technicalCalculatedAt: item.technicalCalculatedAt ?? null,
+    newsUpdatedAt: item.newsUpdatedAt ?? news.latestNewsAt,
+    aiAnalyzedAt: item.aiAnalyzedAt ?? null,
+    aiResearch: item.aiResearch ?? null,
+    aiView,
     invalidation: item.invalidation,
     news: item.newsItems.slice(0, 5).map((n) => ({
       source: n.source,

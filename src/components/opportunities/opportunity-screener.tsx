@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { OpportunityCandidate } from "@/services/opportunity/present";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   filterCandidates,
@@ -13,6 +12,13 @@ import {
   type TableSortKey,
 } from "@/services/opportunity/table-utils";
 import type { RankedOpportunity } from "@/services/opportunity/types";
+import {
+  collectSectors,
+  formatOpportunityPrice,
+  formatRiskPercent,
+  freshnessBadgeLabel,
+} from "@/services/opportunity/ui-utils";
+import { CandidateDetailPanel } from "./candidate-detail-panel";
 
 const FILTERS: Array<{ id: TableFilter; label: string }> = [
   { id: "ALL", label: "All" },
@@ -24,49 +30,36 @@ const FILTERS: Array<{ id: TableFilter; label: string }> = [
   { id: "SPECULATIVE", label: "Speculative" },
   { id: "WATCH", label: "Watch" },
   { id: "BLOCKED", label: "Blocked" },
+  { id: "NO_TRADE", label: "No trade" },
+  { id: "DATA_SKIP", label: "Data skip" },
+  { id: "LOW_RISK", label: "Low risk" },
+  { id: "MEDIUM_RISK", label: "Medium risk" },
   { id: "HIGH_RISK", label: "High risk" },
+  { id: "EXTREME_RISK", label: "Extreme risk" },
   { id: "LONG", label: "Long" },
   { id: "SHORT", label: "Short" },
-  { id: "NEWS_POSITIVE", label: "News +" },
-  { id: "NEWS_NEGATIVE", label: "News −" },
-  { id: "HIGH_NEWS_IMPACT", label: "High news" },
-  { id: "DISCOVERED", label: "Discovered" },
+  { id: "NEWS_POSITIVE", label: "Positive news" },
+  { id: "NEWS_NEGATIVE", label: "Negative news" },
+  { id: "NEWS_MIXED", label: "Mixed news" },
+  { id: "HIGH_NEWS_IMPACT", label: "High news impact" },
+  { id: "DISCOVERED", label: "Discovered today" },
+  { id: "BREAKOUT", label: "Breakout" },
+  { id: "UNUSUAL_VOLUME", label: "Unusual volume" },
 ];
 
 const SORTS: Array<{ id: TableSortKey; label: string }> = [
   { id: "default", label: "Default rank" },
-  { id: "score", label: "Score" },
+  { id: "score", label: "Opportunity score" },
   { id: "risk", label: "Risk" },
+  { id: "riskReward", label: "Risk / reward" },
   { id: "newsImpact", label: "News impact" },
   { id: "newsRecency", label: "News recency" },
-  { id: "riskReward", label: "R:R" },
+  { id: "discovery", label: "Discovery" },
+  { id: "freshness", label: "Freshness" },
   { id: "symbol", label: "Symbol" },
 ];
 
-function formatPrice(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return value >= 1000 ? value.toFixed(0) : value.toFixed(2);
-}
-
-function boardTone(
-  quality: string | null | undefined,
-): "positive" | "negative" | "warning" | "accent" | "neutral" {
-  switch (quality) {
-    case "TRADE":
-      return "positive";
-    case "SPECULATIVE":
-    case "DEVELOPING":
-      return "warning";
-    case "BLOCKED":
-      return "negative";
-    case "WATCH":
-      return "accent";
-    default:
-      return "neutral";
-  }
-}
-
-function candidateAsRanked(item: OpportunityCandidate): RankedOpportunity {
+function candidateAsRanked(item: OpportunityCandidate): RankedOpportunity & { sector?: string | null } {
   return {
     symbol: item.symbol,
     name: item.name,
@@ -93,10 +86,7 @@ function candidateAsRanked(item: OpportunityCandidate): RankedOpportunity {
     riskReward: item.riskReward,
     positionSize: item.positionSize,
     riskAmount: null,
-    scores: {
-      ...item.scores,
-      weights: item.weights,
-    },
+    scores: { ...item.scores, weights: item.weights },
     marketRegime: item.marketRegime as RankedOpportunity["marketRegime"],
     dataStatus: item.dataStatus as RankedOpportunity["dataStatus"],
     dataFreshness: item.dataQuality as RankedOpportunity["dataFreshness"],
@@ -123,105 +113,116 @@ function candidateAsRanked(item: OpportunityCandidate): RankedOpportunity {
     recommendedRiskPercent: item.recommendedRiskPercent,
     discoveryTags: item.discoveryTags as RankedOpportunity["discoveryTags"],
     screenScore: item.screenScore,
+    sector: item.sector,
   };
 }
 
-function DetailPanel({
-  item,
-  onClose,
+function boardTone(
+  quality: string | null | undefined,
+): "positive" | "negative" | "warning" | "accent" | "neutral" {
+  switch (quality) {
+    case "TRADE":
+      return "positive";
+    case "SPECULATIVE":
+    case "DEVELOPING":
+      return "warning";
+    case "BLOCKED":
+      return "negative";
+    case "WATCH":
+      return "accent";
+    default:
+      return "neutral";
+  }
+}
+
+const TableRow = memo(function TableRow({
+  row,
+  onSelect,
 }: {
-  item: OpportunityCandidate;
-  onClose: () => void;
+  row: OpportunityCandidate & { rank: number };
+  onSelect: (item: OpportunityCandidate) => void;
 }) {
   return (
-    <Card className="space-y-3 border-accent/40">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="font-mono text-xl font-semibold">{item.symbol}</h3>
-          <p className="text-xs text-muted">
-            {item.name} · {item.assetType} · {item.boardQualityLabel ?? item.quality}
-          </p>
-        </div>
-        <Button variant="ghost" onClick={onClose}>
-          Close
-        </Button>
-      </div>
-      <p className="text-sm">{item.whyRanked}</p>
-      <p className="text-xs text-muted">{item.newsSummary.newsTechnicalNote}</p>
-      {item.missingConfirmation.length > 0 ? (
-        <div>
-          <p className="text-[11px] font-medium uppercase text-muted">What is missing</p>
-          <ul className="mt-1 list-disc pl-4 text-xs text-muted">
-            {item.missingConfirmation.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-        <div>
-          <p className="text-muted">Trend / Momentum</p>
-          <p>
-            {item.confirmationDetail?.trend ?? "—"} /{" "}
-            {item.confirmationDetail?.momentum ?? "—"}
-          </p>
-        </div>
-        <div>
-          <p className="text-muted">EMA / MACD</p>
-          <p>
-            {item.confirmationDetail?.ema ?? "—"} / {item.confirmationDetail?.macd ?? "—"}
-          </p>
-        </div>
-        <div>
-          <p className="text-muted">Entry / Stop / TP</p>
-          <p className="font-mono">
-            {formatPrice(item.entry)} / {formatPrice(item.stop)} / {formatPrice(item.tp1)} /{" "}
-            {formatPrice(item.tp2)}
-          </p>
-        </div>
-        <div>
-          <p className="text-muted">Freshness</p>
-          <p>{item.dataQuality}</p>
-        </div>
-      </div>
-      {item.news.length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-[11px] font-medium uppercase text-muted">Most relevant news</p>
-          {item.news.map((article) => (
-            <div key={`${article.headline}-${article.publishedAt}`} className="rounded border p-2 text-xs">
-              <p className="font-medium">{article.headline}</p>
-              <p className="text-muted">
-                {article.source ?? "Unknown"} · {article.category} · {article.sentiment} ·{" "}
-                {article.publishedAt
-                  ? new Date(article.publishedAt).toLocaleString()
-                  : "—"}
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-muted">No relevant stored news for this symbol.</p>
-      )}
-    </Card>
+    <tr
+      className="cursor-pointer border-t border-border/50 hover:bg-surface/40"
+      onClick={() => onSelect(row)}
+    >
+      <td className="px-2 py-2 font-mono">{row.rank}</td>
+      <td className="px-2 py-2 font-mono font-semibold">{row.symbol}</td>
+      <td className="hidden px-2 py-2 lg:table-cell">{row.name}</td>
+      <td className="px-2 py-2">{row.assetType}</td>
+      <td className="hidden px-2 py-2 xl:table-cell">{row.sector ?? "—"}</td>
+      <td className="px-2 py-2 font-mono">{formatOpportunityPrice(row.price)}</td>
+      <td className="px-2 py-2">{row.direction}</td>
+      <td className="px-2 py-2 text-[11px]">{row.aiView.label}</td>
+      <td className="px-2 py-2">
+        <Badge tone={boardTone(row.boardQuality)}>{row.boardQualityLabel ?? row.quality}</Badge>
+      </td>
+      <td className="px-2 py-2 font-mono">{row.opportunityScore.toFixed(0)}</td>
+      <td className="px-2 py-2">{row.riskLevel}</td>
+      <td className="hidden px-2 py-2 font-mono md:table-cell">
+        {formatRiskPercent(row.recommendedRiskPercent)}
+      </td>
+      <td className="hidden px-2 py-2 font-mono sm:table-cell">
+        {formatOpportunityPrice(row.entry)}
+      </td>
+      <td className="hidden px-2 py-2 font-mono md:table-cell">
+        {formatOpportunityPrice(row.stop)}
+      </td>
+      <td className="hidden px-2 py-2 font-mono lg:table-cell">
+        {formatOpportunityPrice(row.tp1)}
+      </td>
+      <td className="hidden px-2 py-2 font-mono lg:table-cell">
+        {formatOpportunityPrice(row.tp2)}
+      </td>
+      <td className="hidden px-2 py-2 font-mono md:table-cell">
+        {row.riskReward ? row.riskReward.toFixed(2) : "—"}
+      </td>
+      <td className="hidden px-2 py-2 xl:table-cell">
+        {row.newsSummary.impactLabel}
+      </td>
+      <td className="hidden px-2 py-2 xl:table-cell">
+        {row.newsSummary.catalyst ?? "—"}
+      </td>
+      <td className="hidden px-2 py-2 xl:table-cell text-[11px]">
+        {row.aiResearch && !row.aiResearch.unavailable
+          ? row.aiResearch.action.replace(/_/g, " ")
+          : row.aiView.source === "ai"
+            ? "AI"
+            : "Deterministic"}
+      </td>
+      <td className="px-2 py-2">{freshnessBadgeLabel(row.dataQuality)}</td>
+    </tr>
   );
-}
+});
 
 export function OpportunityScreener({ candidates }: { candidates: OpportunityCandidate[] }) {
   const [activeFilters, setActiveFilters] = useState<TableFilter[]>(["ALL"]);
   const [sortKey, setSortKey] = useState<TableSortKey>("default");
   const [search, setSearch] = useState("");
+  const [sector, setSector] = useState("");
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [selected, setSelected] = useState<OpportunityCandidate | null>(null);
-  const pageSize = 25;
+
+  const sectors = useMemo(
+    () => collectSectors(candidates.map(candidateAsRanked)),
+    [candidates],
+  );
 
   const filtered = useMemo(() => {
     const ranked = candidates.map(candidateAsRanked);
-    const filteredRows = filterCandidates(ranked, activeFilters, search);
+    const filteredRows = filterCandidates(
+      ranked,
+      activeFilters,
+      search,
+      sector || null,
+    );
     return sortCandidates(filteredRows, sortKey).map((row, index) => {
       const original = candidates.find((c) => c.symbol === row.symbol)!;
       return { ...original, rank: index + 1 };
     });
-  }, [candidates, activeFilters, search, sortKey]);
+  }, [candidates, activeFilters, search, sortKey, sector]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice(page * pageSize, page * pageSize + pageSize);
@@ -240,24 +241,52 @@ export function OpportunityScreener({ candidates }: { candidates: OpportunityCan
     });
   }
 
+  function resetFilters() {
+    setActiveFilters(["ALL"]);
+    setSearch("");
+    setSector("");
+    setSortKey("default");
+    setPage(0);
+  }
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">Daily opportunity table</h2>
+          <h2 className="text-sm font-semibold">Opportunity research table</h2>
           <p className="text-[11px] text-muted">
-            Stored scan results only — {filtered.length} rows match current filters
+            Stored scan only — {filtered.length} rows match · up to {candidates.length} loaded
           </p>
         </div>
-        <Input
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(0);
-          }}
-          placeholder="Search symbol"
-          className="max-w-xs"
-        />
+        <div className="flex flex-wrap gap-2">
+          <Input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(0);
+            }}
+            placeholder="Search symbol or name"
+            className="max-w-xs"
+          />
+          <select
+            value={sector}
+            onChange={(event) => {
+              setSector(event.target.value);
+              setPage(0);
+            }}
+            className="h-10 rounded-md border border-border bg-surface px-3 text-xs"
+          >
+            <option value="">All sectors</option>
+            {sectors.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <Button variant="ghost" onClick={resetFilters}>
+            Reset filters
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -283,31 +312,51 @@ export function OpportunityScreener({ candidates }: { candidates: OpportunityCan
             {sort.label}
           </Button>
         ))}
+        <span className="ml-auto text-[11px] uppercase text-muted">Rows</span>
+        {[25, 50].map((size) => (
+          <Button
+            key={size}
+            variant={pageSize === size ? "primary" : "ghost"}
+            onClick={() => {
+              setPageSize(size);
+              setPage(0);
+            }}
+          >
+            {size}
+          </Button>
+        ))}
       </div>
 
-      {selected ? <DetailPanel item={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? (
+        <CandidateDetailPanel item={selected} onClose={() => setSelected(null)} />
+      ) : null}
 
       <div className="overflow-x-auto rounded-lg border border-border/70">
-        <table className="min-w-[1100px] w-full text-left text-xs">
+        <table className="min-w-[1400px] w-full text-left text-xs">
           <thead className="bg-surface/60 text-[10px] uppercase tracking-wide text-muted">
             <tr>
               {[
-                "#",
+                "Rank",
                 "Symbol",
+                "Name",
                 "Type",
+                "Sector",
                 "Price",
-                "Dir",
+                "Direction",
+                "Action",
                 "Quality",
                 "Score",
-                "Status",
                 "Risk",
+                "Risk %",
                 "Entry",
                 "Stop",
                 "TP1",
                 "TP2",
                 "R:R",
                 "News",
-                "Fresh",
+                "Catalyst",
+                "AI View",
+                "Freshness",
               ].map((col) => (
                 <th key={col} className="px-2 py-2 font-medium">
                   {col}
@@ -317,34 +366,7 @@ export function OpportunityScreener({ candidates }: { candidates: OpportunityCan
           </thead>
           <tbody>
             {pageRows.map((row) => (
-              <tr
-                key={row.symbol}
-                className="cursor-pointer border-t border-border/50 hover:bg-surface/40"
-                onClick={() => setSelected(row)}
-              >
-                <td className="px-2 py-2 font-mono">{row.rank}</td>
-                <td className="px-2 py-2 font-mono font-semibold">{row.symbol}</td>
-                <td className="px-2 py-2">{row.assetType}</td>
-                <td className="px-2 py-2 font-mono">{formatPrice(row.price)}</td>
-                <td className="px-2 py-2">{row.direction}</td>
-                <td className="px-2 py-2">
-                  <Badge tone={boardTone(row.boardQuality)}>{row.boardQualityLabel ?? row.quality}</Badge>
-                </td>
-                <td className="px-2 py-2 font-mono">{row.opportunityScore.toFixed(0)}</td>
-                <td className="px-2 py-2">{row.tradeStatus}</td>
-                <td className="px-2 py-2">{row.riskLevel}</td>
-                <td className="px-2 py-2 font-mono">{formatPrice(row.entry)}</td>
-                <td className="px-2 py-2 font-mono">{formatPrice(row.stop)}</td>
-                <td className="px-2 py-2 font-mono">{formatPrice(row.tp1)}</td>
-                <td className="px-2 py-2 font-mono">{formatPrice(row.tp2)}</td>
-                <td className="px-2 py-2 font-mono">
-                  {row.riskReward ? row.riskReward.toFixed(2) : "—"}
-                </td>
-                <td className="px-2 py-2">
-                  {row.newsSummary.impactLabel} · {row.newsSummary.sentimentLabel}
-                </td>
-                <td className="px-2 py-2">{row.dataQuality}</td>
-              </tr>
+              <TableRow key={row.symbol} row={row} onSelect={setSelected} />
             ))}
           </tbody>
         </table>

@@ -6,6 +6,8 @@ import { toOpportunityCandidate, toRankedCandidates } from "./present";
 import { isActionableOpportunity } from "./actionable";
 import { compareTableRank } from "./table-utils";
 import { newsImpactLabel } from "./news-impact";
+import { computeSectorExposureWarnings } from "./sector-exposure";
+import { latestTimestamp } from "./ui-utils";
 import { catalogSize } from "@/services/universe/catalog";
 import type { ScanBoardState } from "./types";
 
@@ -45,12 +47,27 @@ export function buildOpportunitiesBoardResponse(input: {
     unavailable: sorted.filter((i) => i.dataFreshness === "UNAVAILABLE").length,
   };
 
+  const sectorExposureWarnings = computeSectorExposureWarnings(sorted);
+  const lastMarketUpdate = latestTimestamp(
+    sorted.map((item) => item.marketUpdatedAt ?? item.technicalCalculatedAt ?? item.scannedAt),
+  );
+  const lastNewsUpdate = latestTimestamp(
+    sorted.flatMap((item) => [
+      item.newsUpdatedAt,
+      ...item.newsItems.map((n) => n.publishedAt),
+    ]),
+  );
+  const lastAiUpdate = latestTimestamp(sorted.map((item) => item.aiAnalyzedAt));
+
   return {
     date: input.date,
     boardState: input.boardState,
     marketRegime:
       sorted[0]?.marketRegime ?? input.pipelineMeta.marketRegime ?? "UNKNOWN",
     scanTimestamp: sorted[0]?.scannedAt ?? null,
+    lastMarketUpdate,
+    lastNewsUpdate,
+    lastAiUpdate,
     noHighConfidence: board.bestStock === null && board.bestCrypto === null,
     bestStock: board.bestStock ? toOpportunityCandidate(board.bestStock) : null,
     bestCrypto: board.bestCrypto
@@ -91,6 +108,9 @@ export function buildOpportunitiesBoardResponse(input: {
       marketRegime:
         sorted[0]?.marketRegime ?? input.pipelineMeta.marketRegime ?? "UNKNOWN",
       freshness: freshnessCounts,
+      lastMarketUpdate,
+      lastNewsUpdate,
+      lastAiUpdate,
       validSetups: sorted.filter(
         (i) =>
           (i.quality === "STRONG" || i.quality === "CONFIRMED") &&
@@ -114,5 +134,6 @@ export function buildOpportunitiesBoardResponse(input: {
           skipReasons: input.pipelineMeta.signalReport.skipReasons ?? {},
         }
       : null,
+    sectorExposureWarnings,
   };
 }
