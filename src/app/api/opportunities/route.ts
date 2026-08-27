@@ -4,7 +4,6 @@ import { loadPipelineOpportunityBoardMeta } from "@/services/opportunity/board-m
 import { boardFromStored } from "@/services/opportunity/board-from-stored";
 import { toOpportunityCandidate } from "@/services/opportunity/present";
 import { utcBriefDate } from "@/services/daily-brief/date";
-import { loadUserExitCandidates } from "@/services/exit/load-user-exits";
 import { catalogSize } from "@/services/universe/catalog";
 import {
   SCHEDULER_NOTE,
@@ -54,7 +53,9 @@ export async function GET(request: Request) {
 
   const board = boardFromStored(opportunities);
   const confirmedCount = opportunities.filter(
-    (item) => item.quality === "STRONG" || item.quality === "CONFIRMED",
+    (item) =>
+      (item.quality === "STRONG" || item.quality === "CONFIRMED") &&
+      item.tradeStatus === "ELIGIBLE",
   ).length;
 
   const fromRows = deriveBoardStateFromRows({
@@ -74,8 +75,6 @@ export async function GET(request: Request) {
       : pipelineMeta.scanned
         ? "NO_TRADE"
         : "DATA_INSUFFICIENT");
-
-  const exitAlerts = await loadUserExitCandidates(user.id);
 
   const validSetups = opportunities.filter(
     (item) =>
@@ -116,7 +115,9 @@ export async function GET(request: Request) {
       universeSize: catalogSize(),
       openPaperHint: "See Paper Positions for open simulated trades.",
     },
-    exitAlerts,
+    exitAlerts: [],
+    exitMonitoringNote:
+      "Live exit evaluation runs on /api/opportunities/exits — this board uses stored scan data only.",
     whyNoSetup: pipelineMeta.signalReport?.whyNoSetup ?? [],
     blockerAggregate: pipelineMeta.signalReport?.blockerAggregate ?? null,
     confirmationSimulation:

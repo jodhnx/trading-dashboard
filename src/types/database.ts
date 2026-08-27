@@ -63,6 +63,27 @@ export type AssetRow = {
   updated_at: string;
 };
 
+export type SymbolUniverseRow = {
+  id: string;
+  symbol: string;
+  provider_symbol: string | null;
+  name: string;
+  asset_type: AssetType;
+  exchange: string | null;
+  country: string;
+  currency: string;
+  market_cap: number | null;
+  average_volume: number | null;
+  tradable: boolean;
+  provider_mapped: boolean;
+  liquidity_tier: "HIGH" | "MEDIUM" | "LOW";
+  is_leveraged_etf: boolean;
+  is_high_risk: boolean;
+  last_seen: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type MarketDataRow = {
   id: string;
   asset_id: string;
@@ -460,6 +481,13 @@ type PublicTables = {
     Row: AssetRow;
     Insert: Partial<AssetRow> & Pick<AssetRow, "symbol" | "name" | "asset_type">;
     Update: Partial<AssetRow>;
+    Relationships: [];
+  };
+  symbol_universe: {
+    Row: SymbolUniverseRow;
+    Insert: Partial<SymbolUniverseRow> &
+      Pick<SymbolUniverseRow, "symbol" | "name" | "asset_type">;
+    Update: Partial<SymbolUniverseRow>;
     Relationships: [];
   };
   market_data: {

@@ -31,6 +31,18 @@ export type MarketProviderResolution = {
   reason: string;
 };
 
+/** Production when NODE_ENV or VERCEL_ENV is production (unset NODE_ENV alone is not dev). */
+export function isProductionEnv(env: RawEnv): boolean {
+  const nodeEnv = (env.NODE_ENV ?? process.env.NODE_ENV ?? "")
+    .trim()
+    .toLowerCase();
+  if (nodeEnv === "production") return true;
+  const vercelEnv = (env.VERCEL_ENV ?? process.env.VERCEL_ENV ?? "")
+    .trim()
+    .toLowerCase();
+  return vercelEnv === "production";
+}
+
 function firstNonEmpty(...values: Array<string | undefined>): string | null {
   for (const value of values) {
     const trimmed = value?.trim();
@@ -80,7 +92,7 @@ export function resolveMarketProvider(env: RawEnv): MarketProviderResolution {
   const hasTwelveDataKey = Boolean(firstNonEmpty(env.TWELVE_DATA_API_KEY));
 
   if (requested === "mock") {
-    if ((env.NODE_ENV ?? process.env.NODE_ENV) === "production") {
+    if (isProductionEnv(env)) {
       throw new EnvValidationError(
         "MARKET_DATA_PROVIDER=mock is not allowed in production. Use twelve-data or auto.",
       );
@@ -119,8 +131,7 @@ export function resolveMarketProvider(env: RawEnv): MarketProviderResolution {
     };
   }
 
-  const nodeEnv = (env.NODE_ENV ?? "development").trim().toLowerCase();
-  if (nodeEnv === "production") {
+  if (isProductionEnv(env)) {
     return {
       providerId: "unavailable",
       isMock: false,
@@ -142,7 +153,7 @@ export function resolveNewsProvider(env: RawEnv): NewsProviderResolution {
   );
 
   if (requested === "mock") {
-    if ((env.NODE_ENV ?? process.env.NODE_ENV) === "production") {
+    if (isProductionEnv(env)) {
       throw new EnvValidationError(
         "NEWS_PROVIDER=mock is not allowed in production. Use newsapi or auto.",
       );
@@ -181,8 +192,7 @@ export function resolveNewsProvider(env: RawEnv): NewsProviderResolution {
     };
   }
 
-  const nodeEnv = (env.NODE_ENV ?? "development").trim().toLowerCase();
-  if (nodeEnv === "production") {
+  if (isProductionEnv(env)) {
     return {
       providerId: "unavailable",
       isMock: false,

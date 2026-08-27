@@ -107,6 +107,7 @@ type OpportunitiesPayload = {
   blocked?: OpportunityCandidate[];
   watch: OpportunityCandidate[];
   exitAlerts: ExitAlert[];
+  exitMonitoringNote?: string;
   summary?: {
     validSetups: number;
     developing: number;
@@ -146,10 +147,12 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SignalCard({
   title,
+  emptyLabel,
   item,
   emptyReason,
 }: {
   title: string;
+  emptyLabel: string;
   item: OpportunityCandidate | null;
   emptyReason: string | null | undefined;
 }) {
@@ -159,7 +162,7 @@ function SignalCard({
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
           {title}
         </p>
-        <p className="text-sm font-semibold">NO CONFIRMED {title.replace("BEST ", "")} SETUP</p>
+        <p className="text-sm font-semibold">NO CONFIRMED {emptyLabel} SETUP</p>
         <p className="text-xs text-muted">
           {emptyReason ?? "WAIT — no candidate currently meets all trading requirements."}
         </p>
@@ -390,11 +393,13 @@ export function OpportunitiesWorkspace() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SignalCard
           title="Best stock"
+          emptyLabel="STOCK"
           item={data.bestStock}
           emptyReason={data.whyNoBestStock}
         />
         <SignalCard
           title="Best crypto"
+          emptyLabel="CRYPTO"
           item={data.bestCrypto}
           emptyReason={data.whyNoBestCrypto}
         />
@@ -503,7 +508,12 @@ export function OpportunitiesWorkspace() {
         </h3>
         {data.exitAlerts.length === 0 ? (
           <Card>
-            <p className="text-sm text-muted">No open-position exit alerts.</p>
+            <p className="text-sm text-muted">
+              No stored exit alerts on this board.
+            </p>
+            {data.exitMonitoringNote ? (
+              <p className="mt-2 text-[11px] text-muted">{data.exitMonitoringNote}</p>
+            ) : null}
             {data.schedulerNote ? (
               <p className="mt-2 text-[11px] text-muted">{data.schedulerNote}</p>
             ) : null}

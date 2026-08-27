@@ -1,5 +1,6 @@
 import type { RankedOpportunity } from "./types";
 import type { RiskLevel } from "./risk";
+import { hasValidTradeLevels } from "./actionable";
 
 export const BOARD_QUALITIES = [
   "TRADE",
@@ -14,21 +15,24 @@ export type BoardQuality = (typeof BOARD_QUALITIES)[number];
 export function deriveBoardQuality(
   item: Pick<
     RankedOpportunity,
-    "quality" | "tradeStatus" | "technicalConfirmation" | "entry" | "stopLoss" | "takeProfit1"
+    | "quality"
+    | "tradeStatus"
+    | "technicalConfirmation"
+    | "entry"
+    | "stopLoss"
+    | "takeProfit1"
+    | "takeProfit2"
+    | "riskReward"
+    | "currentPrice"
   >,
   riskLevel: RiskLevel,
 ): BoardQuality {
   if (item.quality === "DATA_INSUFFICIENT") return "DATA_SKIP";
 
-  const hasLevels =
-    item.entry !== null &&
-    item.stopLoss !== null &&
-    item.takeProfit1 !== null;
-
   if (
     (item.quality === "STRONG" || item.quality === "CONFIRMED") &&
     item.tradeStatus === "ELIGIBLE" &&
-    hasLevels
+    hasValidTradeLevels(item as RankedOpportunity)
   ) {
     return "TRADE";
   }

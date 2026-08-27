@@ -15,7 +15,6 @@ import {
 import { isDiscoveredCandidate, FAMOUS_SYMBOLS } from "./discovery";
 
 function withInferredQuality(item: RankedOpportunity): RankedOpportunity {
-  // Never promote NO_TRADE / BLOCKED based on tier alone.
   if (item.tradeStatus === "BLOCKED") {
     return {
       ...item,
@@ -23,26 +22,27 @@ function withInferredQuality(item: RankedOpportunity): RankedOpportunity {
       technicalConfirmation: item.technicalConfirmation || "STRONG",
     };
   }
+
   if (
     item.quality === "STRONG" ||
     item.quality === "CONFIRMED" ||
     item.quality === "EARLY_SETUP" ||
     item.quality === "WATCH" ||
+    item.quality === "NO_TRADE" ||
     item.quality === "DATA_INSUFFICIENT"
   ) {
     return item;
   }
-  if (item.quality === "NO_TRADE") {
-    return item;
-  }
+
+  // Legacy rows missing quality — infer display quality only, never tradeStatus.
   if (item.tier === "STRONG_OPPORTUNITY") {
-    return { ...item, quality: "STRONG", tradeStatus: "ELIGIBLE" };
+    return { ...item, quality: "STRONG" };
   }
   if (item.tier === "OPPORTUNITY") {
-    return { ...item, quality: "CONFIRMED", tradeStatus: "ELIGIBLE" };
+    return { ...item, quality: "CONFIRMED" };
   }
   if (item.tier === "WATCH") {
-    return { ...item, quality: "WATCH", tradeStatus: "NO_TRADE" };
+    return { ...item, quality: "WATCH" };
   }
   return item;
 }

@@ -88,7 +88,15 @@ export function PaperTradingWorkspace({ initial, journalLinks = {} }: Props) {
           evaluatedAt?: string;
           dataFreshEnoughForIntraday?: boolean;
         } | null;
-        if (cancelled || !response.ok || !payload) return;
+        if (cancelled) return;
+        if (!response.ok || !payload) {
+          setExitNote(
+            !response.ok
+              ? "Exit monitor unavailable — use Paper Positions or retry later."
+              : null,
+          );
+          return;
+        }
         setExits(payload.exits ?? []);
         setExitsLoadedAt(payload.evaluatedAt ?? new Date().toISOString());
         setExitNote(

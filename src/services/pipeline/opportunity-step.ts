@@ -23,6 +23,9 @@ export async function runOpportunityScanForUser(input: {
   const persistable = [
     ...summary.topStocks,
     ...summary.topCrypto,
+    ...summary.topEtfs,
+    ...summary.discovered,
+    ...summary.speculative,
     ...summary.developing,
     ...summary.blocked,
     ...summary.watchList.slice(0, 15),

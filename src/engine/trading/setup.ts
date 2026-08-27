@@ -212,14 +212,6 @@ export function buildTradingSetup(input: BuildTradingSetupInput): TradingSetup {
       status,
       score,
       confirmation,
-      entry: Number.isFinite(levels.entry) ? levels.entry : snapshot.currentPrice,
-      stopLoss: Number.isFinite(levels.stopLoss) ? levels.stopLoss : null,
-      takeProfit: Number.isFinite(levels.takeProfit) ? levels.takeProfit : null,
-      riskPerUnit: Number.isFinite(levels.riskPerUnit) ? levels.riskPerUnit : null,
-      rewardPerUnit: Number.isFinite(levels.rewardPerUnit)
-        ? levels.rewardPerUnit
-        : null,
-      riskReward: Number.isFinite(levels.riskReward) ? levels.riskReward : null,
       reasons: uniqueReasons([
         ...reasons,
         ...levels.reasons,

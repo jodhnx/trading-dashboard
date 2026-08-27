@@ -222,18 +222,19 @@ export function scoreMtfAlignment(input: {
 }
 
 /**
- * Fetch optional MTF snapshots. Never fabricates. Honors rate-limit flag.
+ * Fetch optional MTF snapshots. Never fabricates. Honors shared rate limiter.
  */
 export async function loadOptionalMtfSnapshots(input: {
   market: MarketDataService;
   symbol: string;
-  rateLimited: boolean;
+  rateLimited?: boolean;
+  limiter?: import("@/services/market/rate-limit").ProviderRateLimiter;
 }): Promise<{
   setup: TechnicalSnapshot | null;
   entry: TechnicalSnapshot | null;
   rateLimited: boolean;
 }> {
-  if (input.rateLimited) {
+  if (input.rateLimited || (input.limiter && !input.limiter.canCall())) {
     return { setup: null, entry: null, rateLimited: true };
   }
 
@@ -242,6 +243,7 @@ export async function loadOptionalMtfSnapshots(input: {
   let entry: TechnicalSnapshot | null = null;
 
   try {
+    if (input.limiter) await input.limiter.beforeCall();
     const result = await input.market.getTechnicalSnapshot(
       input.symbol,
       MTF_SETUP_TIMEFRAME,
@@ -253,19 +255,22 @@ export async function loadOptionalMtfSnapshots(input: {
       setup = result.snapshot;
     }
   } catch (error) {
+    input.limiter?.onError(error);
     const reason =
       error &&
       typeof error === "object" &&
       "details" in error &&
       (error as { details?: { reason?: string } }).details?.reason;
     if (reason === "rate_limit") rateLimited = true;
+    if (input.limiter && !input.limiter.canCall()) rateLimited = true;
   }
 
-  if (rateLimited) {
+  if (rateLimited || (input.limiter && !input.limiter.canCall())) {
     return { setup, entry: null, rateLimited: true };
   }
 
   try {
+    if (input.limiter) await input.limiter.beforeCall();
     const result = await input.market.getTechnicalSnapshot(
       input.symbol,
       MTF_ENTRY_TIMEFRAME,
@@ -277,12 +282,14 @@ export async function loadOptionalMtfSnapshots(input: {
       entry = result.snapshot;
     }
   } catch (error) {
+    input.limiter?.onError(error);
     const reason =
       error &&
       typeof error === "object" &&
       "details" in error &&
       (error as { details?: { reason?: string } }).details?.reason;
     if (reason === "rate_limit") rateLimited = true;
+    if (input.limiter && !input.limiter.canCall()) rateLimited = true;
   }
 
   return { setup, entry, rateLimited };

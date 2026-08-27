@@ -21,6 +21,7 @@ export function getMarketProviderInfo() {
     MARKET_DATA_PROVIDER: process.env.MARKET_DATA_PROVIDER,
     TWELVE_DATA_API_KEY: process.env.TWELVE_DATA_API_KEY,
     NODE_ENV: process.env.NODE_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
   });
 }
 
@@ -31,5 +32,6 @@ export function getNewsProviderInfo() {
     NEWSAPI_API_KEY: process.env.NEWSAPI_API_KEY,
     NEWSAPI_KEY: process.env.NEWSAPI_KEY,
     NODE_ENV: process.env.NODE_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
   });
 }

@@ -32,7 +32,7 @@ export async function acquirePipelineLock(input: {
     ) {
       return { acquired: false, reason: "Pipeline already running" };
     }
-    await admin
+    const { error: staleError } = await admin
       .from("pipeline_runs")
       .update({
         status: "FAILED",
@@ -40,6 +40,9 @@ export async function acquirePipelineLock(input: {
         error_summary: { reason: "stale_running_lock_replaced" },
       })
       .eq("id", existing.data.id);
+    if (staleError) {
+      return { acquired: false, reason: "Could not replace stale pipeline lock" };
+    }
   }
 
   const inserted = await admin
@@ -81,7 +84,7 @@ export async function releasePipelineLock(input: {
   now?: Date;
 }): Promise<void> {
   const admin = createAdminSupabaseClient();
-  await admin
+  const { error } = await admin
     .from("pipeline_runs")
     .update({
       status: input.status,
@@ -93,6 +96,10 @@ export async function releasePipelineLock(input: {
       error_summary: (input.errorSummary ?? {}) as Json,
     })
     .eq("id", input.runId);
+
+  if (error) {
+    throw new Error(`releasePipelineLock failed: ${error.message}`);
+  }
 }
 
 export function defaultPipelineBriefDate(now: Date = new Date()): string {

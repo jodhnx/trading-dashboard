@@ -16,7 +16,7 @@ function providerHealth(
     return {
       provider: info.providerId,
       isMock: info.isMock,
-      configured: info.providerId !== "unavailable",
+      configured: info.providerId !== "unavailable" && !info.isMock,
     };
   } catch (error) {
     if (!(error instanceof EnvValidationError)) {
@@ -34,9 +34,18 @@ export async function GET() {
   const publicEnv = getPublicEnv();
   const market = providerHealth(() => getMarketProviderInfo());
   const news = providerHealth(() => getNewsProviderInfo());
+  const cronConfigured = isCronConfigured();
+  const openaiConfigured = Boolean(process.env.OPENAI_API_KEY?.trim());
+
+  const ok =
+    publicEnv.supabaseConfigured &&
+    market.configured &&
+    news.configured &&
+    cronConfigured &&
+    openaiConfigured;
 
   return Response.json({
-    ok: true,
+    ok,
     phase: RELEASE_PHASE,
     version: APP_VERSION,
     release: RELEASE_NAME,
@@ -47,11 +56,11 @@ export async function GET() {
     marketData: market,
     news: news,
     openai: {
-      configured: Boolean(process.env.OPENAI_API_KEY?.trim()),
+      configured: openaiConfigured,
       modelConfigured: Boolean(process.env.OPENAI_MODEL?.trim()),
     },
     cron: {
-      configured: isCronConfigured(),
+      configured: cronConfigured,
       scheduleUtc: "30 5 * * *",
       path: "/api/cron/daily-pipeline",
       note: "Hobby one-cron-per-day covers the daily opportunity scan only. Real-time exit monitoring requires an external/hourly scheduler.",

@@ -50,6 +50,18 @@ vi.mock("@/lib/env/server", () => ({
   getRequiredAdminSupabase: () => ({ url: "https://x.supabase.co", secretKey: "secret" }),
 }));
 
+vi.mock("./env", () => ({
+  validatePipelineEnvironment: () => ({ ok: true, errors: [] }),
+}));
+
+vi.mock("@/services/universe/sync-catalog", () => ({
+  syncCatalogToDatabase: vi.fn().mockResolvedValue({
+    assetsUpserted: 0,
+    universeUpserted: 0,
+    errors: [],
+  }),
+}));
+
 import { runDailyPipeline } from "./run-daily";
 
 describe("runDailyPipeline", () => {

@@ -218,11 +218,7 @@ function mapOpportunityRow(
 
   const tradeStatus: RankedOpportunity["tradeStatus"] =
     breakdown.tradeStatus ??
-    (breakdown.blockReason
-      ? "BLOCKED"
-      : quality === "STRONG" || quality === "CONFIRMED"
-        ? "ELIGIBLE"
-        : "NO_TRADE");
+    (breakdown.blockReason ? "BLOCKED" : "NO_TRADE");
 
   return {
     symbol: asset.symbol,

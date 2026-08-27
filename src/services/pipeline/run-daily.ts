@@ -2,6 +2,7 @@ import "server-only";
 
 import { createOpenAiClient } from "@/ai/create-client";
 import { OPPORTUNITY_UNIVERSE } from "@/services/opportunity/universe";
+import { syncCatalogToDatabase } from "@/services/universe/sync-catalog";
 import { defaultPipelineBriefDate, acquirePipelineLock, releasePipelineLock } from "./lock";
 import { validatePipelineEnvironment } from "./env";
 import { warmMarketData } from "./market-step";
@@ -56,7 +57,23 @@ export async function runDailyPipeline(input?: {
   };
   let marketResult = emptyMarket();
 
+  let releaseStatus: "SUCCESS" | "PARTIAL" | "FAILED" | "SKIPPED" = "FAILED";
+  let releaseSummary: Record<string, unknown> = { error: "pipeline_not_completed" };
+  let releaseAssetsProcessed: number | undefined;
+  let releaseAiRequests: number | undefined;
+  let releaseNewsInserted: number | undefined;
+  let releaseErrorSummary: Record<string, unknown> | undefined;
+
   try {
+    const catalogSync = await syncCatalogToDatabase();
+    if (catalogSync.errors.length > 0) {
+      console.warn("[pipeline] catalog sync partial", {
+        errors: catalogSync.errors.slice(0, 5),
+        assetsUpserted: catalogSync.assetsUpserted,
+        universeUpserted: catalogSync.universeUpserted,
+      });
+    }
+
     const warmed = await warmMarketData();
     marketResult = {
       ...warmed.counts,
@@ -219,29 +236,41 @@ export async function runDailyPipeline(input?: {
       lock: { acquired: true },
     };
 
-    await releasePipelineLock({
-      runId: lock.runId,
-      briefDate,
-      status: status === "SKIPPED" ? "SKIPPED" : status,
-      summary: sanitizeSummary(result),
-      assetsProcessed: result.assetsProcessed,
-      aiRequests: aiTotals.requested,
-      newsInserted: newsResult.inserted,
-      now,
-    });
+    releaseStatus = status === "SKIPPED" ? "SKIPPED" : status;
+    releaseSummary = sanitizeSummary(result);
+    releaseAssetsProcessed = result.assetsProcessed;
+    releaseAiRequests = aiTotals.requested;
+    releaseNewsInserted = newsResult.inserted;
 
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "pipeline_error";
-    await releasePipelineLock({
-      runId: lock.runId,
-      briefDate,
-      status: "FAILED",
-      summary: { error: message },
-      errorSummary: { message },
-      now,
-    });
+    releaseStatus = "FAILED";
+    releaseSummary = { error: message };
+    releaseErrorSummary = { message };
     return failedResult({ briefDate, started, reason: message, lockAcquired: true });
+  } finally {
+    try {
+      await releasePipelineLock({
+        runId: lock.runId,
+        briefDate,
+        status: releaseStatus,
+        summary: releaseSummary,
+        assetsProcessed: releaseAssetsProcessed,
+        aiRequests: releaseAiRequests,
+        newsInserted: releaseNewsInserted,
+        errorSummary: releaseErrorSummary,
+        now,
+      });
+    } catch (releaseError) {
+      console.error("[pipeline] failed to release lock", {
+        runId: lock.runId,
+        reason:
+          releaseError instanceof Error
+            ? releaseError.message.slice(0, 200)
+            : "unknown",
+      });
+    }
   }
 }
 

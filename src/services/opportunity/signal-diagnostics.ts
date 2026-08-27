@@ -386,11 +386,11 @@ export function buildSignalDiagnosticsReport(input: {
   ).length;
 
   const confirmationSimulation: ConfirmationSimulation = {
-    currentConfirmationRule: LEGACY_CONFIRMATION_RULE,
+    currentConfirmationRule: ACTIVE_CONFIRMATION_RULE,
     activeConfirmationRule: ACTIVE_CONFIRMATION_RULE,
     alternativeConfirmationRule: LEGACY_CONFIRMATION_RULE,
     liveOrCachedEvaluated: liveOrCached.length,
-    currentValid: confirmedTradeCount,
+    currentValid: strongTechnicalConfirmationCount,
     alternativeValid: liveOrCached.filter((d) => d.legacyAllFourWouldPass).length,
     strongConfirmationCount: strongTechnicalConfirmationCount,
     strongTechnicalConfirmationCount,

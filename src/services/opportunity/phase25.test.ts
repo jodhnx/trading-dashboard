@@ -100,6 +100,9 @@ describe("phase25 board quality", () => {
       entry: 100,
       stopLoss: 95,
       takeProfit1: 110,
+      takeProfit2: 120,
+      riskReward: 2,
+      currentPrice: 100,
     };
     expect(deriveBoardQuality(item, "MEDIUM")).toBe("TRADE");
   });
@@ -112,6 +115,9 @@ describe("phase25 board quality", () => {
       entry: 100,
       stopLoss: 95,
       takeProfit1: 102,
+      takeProfit2: 110,
+      riskReward: 2,
+      currentPrice: 100,
     };
     expect(deriveBoardQuality(item, "HIGH")).toBe("SPECULATIVE");
   });

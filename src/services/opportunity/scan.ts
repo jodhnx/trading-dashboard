@@ -502,7 +502,6 @@ export async function scanDailyOpportunities(input: {
   const universe =
     input.scanUniverse ?? loadScanUniverse({ limit: DEFAULT_BROAD_SCREEN_LIMIT });
   const limiter = new ProviderRateLimiter();
-  const screenBySymbol = new Map<string, BroadScreenResult>();
 
   const broad = await runBroadScreen({
     assets: universe,
@@ -511,7 +510,7 @@ export async function scanDailyOpportunities(input: {
     maxSymbols: DEFAULT_BROAD_SCREEN_LIMIT,
   });
 
-  for (const row of broad.skipped.slice(0, 50)) {
+  for (const row of broad.skipped) {
     unavailable += 1;
     diagnostics.push(
       dataSkipDiagnostic({
@@ -525,7 +524,7 @@ export async function scanDailyOpportunities(input: {
   }
 
   const deepTargets = selectDeepAnalysisTargets(broad.screened);
-  let providerRateLimited = limiter.state.tripped;
+  let providerRateLimited = limiter.state.tripped || !limiter.canCall();
 
   const technicalPool: Array<{
     symbol: string;
@@ -544,11 +543,22 @@ export async function scanDailyOpportunities(input: {
   let liveOrCached = 0;
 
   for (const screen of deepTargets) {
-    screenBySymbol.set(screen.symbol, screen);
     const asset = screen.asset;
 
     if (!limiter.canCall()) {
       unavailable += 1;
+      providerRateLimited = true;
+      diagnostics.push(
+        dataSkipDiagnostic({
+          symbol: asset.symbol,
+          assetType: asset.assetClass,
+          quoteStatus: screen.quoteStatus,
+          technicalStatus: "UNAVAILABLE",
+          reason: limiter.state.tripped
+            ? "provider_rate_limit"
+            : "provider_call_budget_exceeded",
+        }),
+      );
       continue;
     }
 
@@ -631,6 +641,7 @@ export async function scanDailyOpportunities(input: {
       });
     } catch (error) {
       limiter.onError(error);
+      providerRateLimited = limiter.state.tripped || !limiter.canCall();
       unavailable += 1;
       const reason =
         error instanceof DataUnavailableError
@@ -696,10 +707,12 @@ export async function scanDailyOpportunities(input: {
     for (const symbol of enrichTargets) {
       const draft = drafts.find((d) => d.asset.symbol === symbol);
       if (!draft) continue;
+      providerRateLimited = limiter.state.tripped || !limiter.canCall();
+      if (providerRateLimited) break;
       const mtfResult = await loadOptionalMtfSnapshots({
         market,
         symbol,
-        rateLimited: providerRateLimited,
+        limiter,
       });
       if (mtfResult.rateLimited) {
         providerRateLimited = true;

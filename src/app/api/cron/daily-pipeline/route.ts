@@ -1,6 +1,9 @@
 import { verifyCronAuthorization } from "@/services/pipeline/auth";
 import { runDailyPipeline } from "@/services/pipeline/run-daily";
 
+/** Allow long-running Phase 25 broad scan on Vercel Pro (max 300s). */
+export const maxDuration = 300;
+
 /**
  * Daily production pipeline — scheduled at 05:30 UTC via vercel.json.
  *
