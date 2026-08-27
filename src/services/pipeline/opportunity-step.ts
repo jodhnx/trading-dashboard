@@ -1,6 +1,8 @@
 import "server-only";
 
+import { createOpenAiClient } from "@/ai/create-client";
 import { scanDailyOpportunities } from "@/services/opportunity/scan";
+import { runAiResearchForCandidates } from "@/services/opportunity/ai-research";
 import { persistOpportunityScan } from "@/services/opportunity/persistence";
 import type { OpportunityScanSummary } from "@/services/opportunity/types";
 
@@ -13,12 +15,27 @@ export async function runOpportunityScanForUser(input: {
   summary: OpportunityScanSummary;
   persisted: { inserted: number; skipped: number };
 }> {
-  const summary = await scanDailyOpportunities({
+  let summary = await scanDailyOpportunities({
     userId: input.userId,
     email: input.email,
     now: input.now,
     persistence: "admin",
   });
+
+  const client = createOpenAiClient();
+  const researched = await runAiResearchForCandidates({
+    candidates: summary.all,
+    client,
+    now: input.now,
+    limit: 12,
+  });
+
+  if (researched.completed > 0) {
+    summary = {
+      ...summary,
+      all: researched.updated,
+    };
+  }
 
   const persistable = [
     ...summary.all.filter(

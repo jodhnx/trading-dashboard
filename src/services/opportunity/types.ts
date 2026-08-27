@@ -169,6 +169,7 @@ export type OpportunityCandidateDiagnostic = {
   blockReason?: string | null;
   technicalConfirmation?: string;
   rejectionReason: string | null;
+  dataFreshness?: DataFreshness;
 };
 
 export type OpportunityScoreBreakdown = {
@@ -250,6 +251,11 @@ export type RankedOpportunity = {
   recommendedRiskPercent?: number | null;
   discoveryTags?: string[];
   screenScore?: number | null;
+  marketUpdatedAt?: string | null;
+  technicalCalculatedAt?: string | null;
+  newsUpdatedAt?: string | null;
+  aiAnalyzedAt?: string | null;
+  aiResearch?: import("./ai-research-shared").AiResearchResult | null;
 };
 
 export type FreshnessCounts = {
@@ -295,4 +301,5 @@ export type OpportunityScanSummary = {
   schedulerNote: string;
   /** Phase 25 scan stage statistics */
   stageStats?: import("@/services/universe/types").ScanStageStats;
+  sectorExposureWarnings?: import("./sector-exposure").SectorExposureWarning[];
 };

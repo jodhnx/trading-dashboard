@@ -52,7 +52,7 @@ function withInferredQuality(item: RankedOpportunity): RankedOpportunity {
  */
 export function boardFromStored(opportunities: RankedOpportunity[]) {
   const inferred = opportunities.map(withInferredQuality).sort(compareOpportunityRank);
-  const stocks = inferred.filter((item) => item.assetClass !== "CRYPTO");
+  const stocks = inferred.filter((item) => item.assetClass === "STOCK");
   const cryptos = inferred.filter((item) => item.assetClass === "CRYPTO");
   const bestStock = selectBestOpportunity(stocks);
   const bestCrypto = selectBestOpportunity(cryptos);

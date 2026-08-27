@@ -61,6 +61,8 @@ export async function runBroadScreen(input: {
       if (absChange >= 3) {
         screenScore += 25;
         signals.push("large_daily_move");
+        if (changePercent >= 3) signals.push("new_high");
+        if (changePercent <= -3) signals.push("new_low");
       } else if (absChange >= 1.5) {
         screenScore += 15;
         signals.push("momentum_move");
@@ -77,6 +79,22 @@ export async function runBroadScreen(input: {
       } else if (asset.liquidityTier !== "HIGH") {
         skipped.push(skipResult(asset, "illiquid", quoteStatus));
         continue;
+      }
+
+      if (absChange >= 2 && volume >= 1_000_000) {
+        screenScore += 8;
+        signals.push("breakout_proximity");
+      }
+
+      if (
+        asset.category === "SEMICONDUCTOR" ||
+        asset.category === "AI" ||
+        asset.sector === "Technology"
+      ) {
+        if (changePercent >= 1.5) {
+          screenScore += 4;
+          signals.push("sector_strength");
+        }
       }
 
       if (asset.isHighRisk) {

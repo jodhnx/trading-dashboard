@@ -3,75 +3,92 @@ import type { RankedOpportunity } from "./types";
 import type { TechnicalSnapshot } from "@/engine/technical/technical-snapshot";
 
 export const DISCOVERY_TAGS = [
-  "unusual_volume",
-  "momentum_acceleration",
-  "breakout",
-  "reversal",
-  "news_catalyst",
-  "trend_transition",
-  "volatility_expansion",
-  "relative_strength",
-  "oversold_recovery",
+  "UNUSUAL_VOLUME",
+  "STRONG_MOMENTUM",
+  "BREAKOUT",
+  "NEWS_CATALYST",
+  "SECTOR_STRENGTH",
+  "VOLATILITY_EXPANSION",
+  "RELATIVE_STRENGTH",
+  "NEW_HIGH",
+  "NEW_LOW",
 ] as const;
 export type DiscoveryTag = (typeof DISCOVERY_TAGS)[number];
+
+const LEGACY_SIGNAL_MAP: Record<string, DiscoveryTag> = {
+  high_volume: "UNUSUAL_VOLUME",
+  elevated_volume: "UNUSUAL_VOLUME",
+  momentum_move: "STRONG_MOMENTUM",
+  large_daily_move: "STRONG_MOMENTUM",
+  crypto_volatility: "VOLATILITY_EXPANSION",
+  breakout_proximity: "BREAKOUT",
+  new_high: "NEW_HIGH",
+  new_low: "NEW_LOW",
+  sector_strength: "SECTOR_STRENGTH",
+};
+
+export function mapScreenSignalsToTags(signals: string[]): DiscoveryTag[] {
+  const tags = new Set<DiscoveryTag>();
+  for (const signal of signals) {
+    const mapped = LEGACY_SIGNAL_MAP[signal];
+    if (mapped) tags.add(mapped);
+  }
+  return [...tags];
+}
 
 export function deriveDiscoveryTags(input: {
   screen: BroadScreenResult | null;
   snapshot: TechnicalSnapshot;
   opportunity: RankedOpportunity;
 }): DiscoveryTag[] {
-  const tags: DiscoveryTag[] = [];
+  const tags = new Set<DiscoveryTag>(
+    mapScreenSignalsToTags(input.screen?.signals ?? []),
+  );
   const { screen, snapshot, opportunity } = input;
 
   if (
     screen?.signals.includes("high_volume") ||
     screen?.signals.includes("elevated_volume")
   ) {
-    tags.push("unusual_volume");
+    tags.add("UNUSUAL_VOLUME");
   }
   if (
     screen?.signals.includes("momentum_move") ||
     screen?.signals.includes("large_daily_move")
   ) {
-    tags.push("momentum_acceleration");
+    tags.add("STRONG_MOMENTUM");
   }
   if (screen?.signals.includes("crypto_volatility")) {
-    tags.push("volatility_expansion");
+    tags.add("VOLATILITY_EXPANSION");
+  }
+  if (screen?.signals.includes("new_high")) {
+    tags.add("NEW_HIGH");
+  }
+  if (screen?.signals.includes("new_low")) {
+    tags.add("NEW_LOW");
+  }
+  if (screen?.signals.includes("sector_strength")) {
+    tags.add("SECTOR_STRENGTH");
   }
 
   if (snapshot.trend === "BULLISH" && snapshot.momentum === "STRONG") {
-    tags.push("relative_strength");
+    tags.add("RELATIVE_STRENGTH");
   }
   if (snapshot.trend === "BEARISH" && snapshot.momentum === "NEGATIVE") {
-    tags.push("relative_strength");
+    tags.add("RELATIVE_STRENGTH");
   }
 
   if (
     opportunity.setupType === "BREAKOUT" ||
     opportunity.setupType === "MOMENTUM"
   ) {
-    tags.push("breakout");
-  }
-  if (
-    opportunity.setupType === "REVERSAL" ||
-    opportunity.setupType === "MEAN_REVERSION"
-  ) {
-    tags.push("reversal");
-    if (snapshot.momentum === "POSITIVE" && snapshot.trend === "BEARISH") {
-      tags.push("oversold_recovery");
-    }
+    tags.add("BREAKOUT");
   }
   if (opportunity.newsItems.length > 0 && opportunity.scores.catalystScore >= 65) {
-    tags.push("news_catalyst");
-  }
-  if (
-    opportunity.quality === "EARLY_SETUP" ||
-    opportunity.technicalConfirmation === "EARLY_SETUP"
-  ) {
-    tags.push("trend_transition");
+    tags.add("NEWS_CATALYST");
   }
 
-  return [...new Set(tags)];
+  return [...tags];
 }
 
 export function isDiscoveredCandidate(input: {

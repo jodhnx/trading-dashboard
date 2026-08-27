@@ -91,6 +91,12 @@ export const NEWS_CATEGORIES = [
   "CRYPTO",
   "GEOPOLITICAL",
   "MARKET",
+  "DIVIDEND",
+  "STOCK_BUYBACK",
+  "CRYPTO_REGULATION",
+  "LIQUIDITY",
+  "SEMICONDUCTOR",
+  "CENTRAL_BANK",
   "OTHER",
 ] as const;
 export type NewsCategory = (typeof NEWS_CATEGORIES)[number];

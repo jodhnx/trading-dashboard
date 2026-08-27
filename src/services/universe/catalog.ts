@@ -1,4 +1,6 @@
 import type { CatalogAsset } from "./types";
+import { EXPANDED_CATALOG_ENTRIES } from "./catalog-expanded";
+import { mergeCatalogEntries } from "./catalog-build";
 
 function stock(
   symbol: string,
@@ -60,8 +62,8 @@ function crypto(symbol: string, name: string, tier: CatalogAsset["liquidityTier"
   };
 }
 
-/** Broad market catalog — dynamically loadable, not hardcoded to ~30 symbols. */
-export const BROAD_MARKET_CATALOG: CatalogAsset[] = [
+/** Broad market catalog — core symbols merged with Phase 27 expanded universe. */
+const CORE_CATALOG: CatalogAsset[] = [
   etf("SPY", "S&P 500 ETF"),
   etf("QQQ", "Nasdaq 100 ETF"),
   etf("IWM", "Russell 2000 ETF"),
@@ -117,7 +119,7 @@ export const BROAD_MARKET_CATALOG: CatalogAsset[] = [
   stock("UBER", "Uber Technologies"),
   stock("ABNB", "Airbnb"),
   stock("SHOP", "Shopify"),
-  stock("SQ", "Block", "NYSE"),
+  stock("XYZ", "Block", "NYSE"),
   stock("PYPL", "PayPal"),
   stock("COIN", "Coinbase Global"),
   stock("HOOD", "Robinhood Markets", "NASDAQ", "MEDIUM"),
@@ -247,6 +249,11 @@ export const BROAD_MARKET_CATALOG: CatalogAsset[] = [
     liquidityTier: "HIGH",
   },
 ];
+
+export const BROAD_MARKET_CATALOG: CatalogAsset[] = mergeCatalogEntries(
+  CORE_CATALOG,
+  EXPANDED_CATALOG_ENTRIES,
+);
 
 export const REGIME_BENCHMARKS = ["SPY", "QQQ", "IWM", "DIA", "BTC", "ETH"] as const;
 

@@ -79,6 +79,11 @@ export type SymbolUniverseRow = {
   liquidity_tier: "HIGH" | "MEDIUM" | "LOW";
   is_leveraged_etf: boolean;
   is_high_risk: boolean;
+  catalog_category: string | null;
+  sector: string | null;
+  industry: string | null;
+  market: string | null;
+  risk_hints: string[];
   last_seen: string;
   created_at: string;
   updated_at: string;

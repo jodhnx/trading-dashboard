@@ -15,14 +15,49 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Tickers that collide with common English words in headlines. */
+const AMBIGUOUS_TICKERS = new Set([
+  "AI",
+  "ALL",
+  "ARE",
+  "CAN",
+  "DAY",
+  "FOR",
+  "HAS",
+  "HIGH",
+  "IT",
+  "KEY",
+  "LOW",
+  "NET",
+  "NEW",
+  "NOW",
+  "ON",
+  "OR",
+  "OUT",
+  "PATH",
+  "REAL",
+  "RUN",
+  "SO",
+  "TEAM",
+  "TOP",
+  "UP",
+  "US",
+  "WAY",
+  "BOX",
+  "APP",
+  "BIG",
+  "GO",
+]);
+
 function buildCatalogRules(): Array<{ symbol: string; pattern: RegExp }> {
   const rules: Array<{ symbol: string; pattern: RegExp }> = [];
   for (const asset of listTradableCatalog()) {
     const symbol = asset.symbol.toUpperCase();
     if (symbol.length < 3) continue;
+    if (AMBIGUOUS_TICKERS.has(symbol)) continue;
     rules.push({
       symbol,
-      pattern: new RegExp(`\\b\\$?${escapeRegex(symbol)}\\b`, "i"),
+      pattern: new RegExp(`\\$${escapeRegex(symbol)}\\b|\\b${escapeRegex(symbol)}\\b`, "i"),
     });
   }
   return rules;

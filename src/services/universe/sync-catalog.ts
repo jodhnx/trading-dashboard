@@ -58,6 +58,11 @@ export async function syncCatalogToDatabase(): Promise<{
       liquidity_tier: item.liquidityTier,
       is_leveraged_etf: item.isLeveragedEtf ?? false,
       is_high_risk: item.isHighRisk ?? false,
+      catalog_category: item.category ?? null,
+      sector: item.sector ?? null,
+      industry: item.industry ?? null,
+      market: item.market ?? null,
+      risk_hints: item.riskHints ?? [],
       last_seen: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

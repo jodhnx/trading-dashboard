@@ -144,6 +144,11 @@ export async function persistOpportunityScan(input: {
         recommendedRiskPercent: opportunity.recommendedRiskPercent,
         discoveryTags: opportunity.discoveryTags,
         screenScore: opportunity.screenScore,
+        marketUpdatedAt: opportunity.marketUpdatedAt ?? null,
+        technicalCalculatedAt: opportunity.technicalCalculatedAt ?? null,
+        newsUpdatedAt: opportunity.newsUpdatedAt ?? null,
+        aiAnalyzedAt: opportunity.aiAnalyzedAt ?? null,
+        aiResearch: opportunity.aiResearch ?? null,
       } as unknown as Json,
       asset_class: opportunity.assetClass,
       setup_type: opportunity.setupType,
@@ -167,6 +172,28 @@ export async function persistOpportunityScan(input: {
   }
 
   return { inserted, skipped };
+}
+
+function inferStoredTradeStatus(
+  row: OpportunityRow,
+  breakdown: {
+    tradeStatus?: RankedOpportunity["tradeStatus"];
+    blockReason?: string | null;
+  },
+  quality: RankedOpportunity["quality"],
+): RankedOpportunity["tradeStatus"] {
+  if (breakdown.tradeStatus) return breakdown.tradeStatus;
+  if (breakdown.blockReason) return "BLOCKED";
+  const hasLevels =
+    row.entry !== null &&
+    row.stop_loss !== null &&
+    row.take_profit_1 !== null &&
+    row.take_profit_2 !== null &&
+    row.risk_reward !== null;
+  if ((quality === "STRONG" || quality === "CONFIRMED") && hasLevels) {
+    return "ELIGIBLE";
+  }
+  return "NO_TRADE";
 }
 
 function mapOpportunityRow(
@@ -193,6 +220,11 @@ function mapOpportunityRow(
     recommendedRiskPercent?: number | null;
     discoveryTags?: RankedOpportunity["discoveryTags"];
     screenScore?: number | null;
+    marketUpdatedAt?: string | null;
+    technicalCalculatedAt?: string | null;
+    newsUpdatedAt?: string | null;
+    aiAnalyzedAt?: string | null;
+    aiResearch?: RankedOpportunity["aiResearch"];
   };
 
   const tier = (row.opportunity_tier as RankedOpportunity["tier"]) ?? "WATCH";
@@ -221,9 +253,7 @@ function mapOpportunityRow(
   const multiTimeFrameScore =
     breakdown.multiTimeFrameScore ?? breakdown.multiTimeframeScore ?? 50;
 
-  const tradeStatus: RankedOpportunity["tradeStatus"] =
-    breakdown.tradeStatus ??
-    (breakdown.blockReason ? "BLOCKED" : "NO_TRADE");
+  const tradeStatus = inferStoredTradeStatus(row, breakdown, quality);
 
   return {
     symbol: asset.symbol,
@@ -361,6 +391,11 @@ function mapOpportunityRow(
     recommendedRiskPercent: breakdown.recommendedRiskPercent ?? null,
     discoveryTags: breakdown.discoveryTags ?? [],
     screenScore: breakdown.screenScore ?? null,
+    marketUpdatedAt: breakdown.marketUpdatedAt ?? null,
+    technicalCalculatedAt: breakdown.technicalCalculatedAt ?? row.created_at,
+    newsUpdatedAt: breakdown.newsUpdatedAt ?? null,
+    aiAnalyzedAt: breakdown.aiAnalyzedAt ?? null,
+    aiResearch: breakdown.aiResearch ?? null,
   };
 }
 

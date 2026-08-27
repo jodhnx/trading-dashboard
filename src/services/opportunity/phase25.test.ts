@@ -14,16 +14,16 @@ import type { BroadScreenResult } from "@/services/universe/types";
 import { liveSnapshot } from "@/ai/test-fixtures";
 
 describe("phase25 release", () => {
-  it("reports phase 25", () => {
-    expect(RELEASE_PHASE).toBe(26);
-    expect(APP_VERSION).toMatch(/^0\.26/);
+  it("reports phase 27", () => {
+    expect(RELEASE_PHASE).toBe(27);
+    expect(APP_VERSION).toMatch(/^0\.27/);
   });
 });
 
 describe("phase25 broad universe", () => {
   it("expands beyond the legacy ~30 symbol cap", () => {
-    expect(catalogSize()).toBeGreaterThan(30);
-    expect(listTradableCatalog().length).toBeGreaterThan(100);
+    expect(catalogSize()).toBeGreaterThan(500);
+    expect(listTradableCatalog().length).toBeGreaterThan(500);
   });
 
   it("supports paginated universe loading", () => {

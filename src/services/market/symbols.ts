@@ -112,7 +112,11 @@ export function toProviderSymbol(symbol: string): string | null {
 }
 
 export function displayNameFor(symbol: string): string {
-  return getWatchAsset(symbol)?.name ?? normalizeInternalSymbol(symbol);
+  const watched = getWatchAsset(symbol);
+  if (watched?.name) return watched.name;
+  const catalog = getCatalogAsset(symbol);
+  if (catalog?.name) return catalog.name;
+  return normalizeInternalSymbol(symbol);
 }
 
 export function quoteMatchesMapping(

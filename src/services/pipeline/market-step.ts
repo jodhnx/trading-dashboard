@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createMarketDataService } from "@/services/market/create-service";
-import { OPPORTUNITY_UNIVERSE } from "@/services/opportunity/universe";
+import { REGIME_BENCHMARKS } from "@/services/universe/catalog";
+import { ProviderRateLimiter } from "@/services/market/rate-limit";
 import { DAILY_BRIEF_TIMEFRAME } from "@/services/daily-brief/types";
 import type { DataStatus } from "@/services/market/provider";
 import { invalidateMarketSymbolCache } from "./cache-invalidation";
@@ -27,32 +28,46 @@ function bumpStatus(counts: MarketWarmResult["counts"], status: DataStatus | "UN
 }
 
 /**
- * Warm shared market cache for the opportunity universe once per pipeline run.
- * Counts reflect quote freshness (legacy). Each asset also records technicalStatus
- * for opportunity eligibility — quotes LIVE ≠ technicals LIVE.
+ * Light pipeline warm for regime benchmarks only.
+ * Full universe quotes/technicals are fetched in the rate-limited opportunity scan.
  */
 export async function warmMarketData(): Promise<MarketWarmResult> {
   const market = createMarketDataService();
+  const limiter = new ProviderRateLimiter(48, 150);
   const assets: PipelineAssetResult[] = [];
   const counts = { live: 0, cached: 0, stale: 0, mock: 0, unavailable: 0 };
 
-  for (const asset of OPPORTUNITY_UNIVERSE) {
+  for (const symbol of REGIME_BENCHMARKS) {
+    if (!limiter.canCall()) {
+      assets.push({
+        symbol,
+        quoteStatus: "UNAVAILABLE",
+        technicalStatus: "UNAVAILABLE",
+        error: "provider_rate_limit",
+      });
+      counts.unavailable += 1;
+      continue;
+    }
+
     try {
-      invalidateMarketSymbolCache(asset.symbol, DAILY_BRIEF_TIMEFRAME);
-      const quote = await market.getQuote(asset.symbol);
+      await limiter.beforeCall();
+      invalidateMarketSymbolCache(symbol, DAILY_BRIEF_TIMEFRAME);
+      const quote = await market.getQuote(symbol);
+      await limiter.beforeCall();
       const technical = await market.getTechnicalSnapshot(
-        asset.symbol,
+        symbol,
         DAILY_BRIEF_TIMEFRAME,
       );
       bumpStatus(counts, quote.status);
       assets.push({
-        symbol: asset.symbol,
+        symbol,
         quoteStatus: quote.status,
         technicalStatus: technical.snapshot.dataStatus,
       });
     } catch (error) {
+      limiter.onError(error);
       assets.push({
-        symbol: asset.symbol,
+        symbol,
         quoteStatus: "UNAVAILABLE",
         technicalStatus: "UNAVAILABLE",
         error: error instanceof Error ? error.message : "market_error",

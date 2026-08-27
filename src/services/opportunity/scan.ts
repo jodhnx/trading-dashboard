@@ -64,6 +64,8 @@ import {
   isDiscoveredCandidate,
   FAMOUS_SYMBOLS,
 } from "./discovery";
+import { buildCandidateTimestamps } from "./freshness";
+import { computeSectorExposureWarnings } from "./sector-exposure";
 import {
   TOP_CRYPTO_LIMIT,
   TOP_STOCK_LIMIT,
@@ -198,6 +200,14 @@ function buildFreshnessCounts(
       continue;
     }
     const freshness = toDataFreshness(d.technicalStatus);
+    if (d.dataFreshness) {
+      if (d.dataFreshness === "LIVE") liveCount += 1;
+      else if (d.dataFreshness === "RECENT") recentCount += 1;
+      else if (d.dataFreshness === "CACHED") cachedCount += 1;
+      else if (d.dataFreshness === "STALE") staleCount += 1;
+      else unavailableCount += 1;
+      continue;
+    }
     if (freshness === "LIVE") liveCount += 1;
     else if (freshness === "RECENT") recentCount += 1;
     else if (freshness === "CACHED") cachedCount += 1;
@@ -426,6 +436,12 @@ function finalizeCandidate(input: {
     opportunity: base,
   });
 
+  const timestamps = buildCandidateTimestamps({
+    snapshotAsOf: draft.snapshot.asOf,
+    scannedAt: input.scannedAt,
+    latestNewsAt: draft.newsImpact.latestNewsAt,
+  });
+
   const riskPenalty =
     riskLevel === "EXTREME" ? 40 : riskLevel === "HIGH" ? 25 : riskLevel === "MEDIUM" ? 12 : 0;
 
@@ -435,6 +451,7 @@ function finalizeCandidate(input: {
     riskLevel,
     recommendedRiskPercent: positionRisk.recommendedRiskPercent,
     discoveryTags,
+    ...timestamps,
     positionSize:
       hasActionableLevels && base.positionSize !== null
         ? base.positionSize
@@ -766,6 +783,7 @@ export async function scanDailyOpportunities(input: {
       tradeStatus: item.tradeStatus,
       blockReason: item.blockReason,
       technicalConfirmation: item.technicalConfirmation,
+      dataFreshness: item.dataFreshness,
       rejectionReason: item.blockReason,
     });
     signalAssets.push(
@@ -856,8 +874,9 @@ export async function scanDailyOpportunities(input: {
   });
 
   const freshness = buildFreshnessCounts(diagnostics);
+  const sectorExposureWarnings = computeSectorExposureWarnings(finalized);
 
-  console.info("[opportunity-scan] phase25 broad scan", {
+  console.info("[opportunity-scan] phase27 broad scan", {
     boardState,
     universeSize: stageStats.universeSize,
     broadScreened: stageStats.broadScreened,
@@ -919,5 +938,6 @@ export async function scanDailyOpportunities(input: {
     signalReport,
     schedulerNote: SCHEDULER_NOTE,
     stageStats,
+    sectorExposureWarnings,
   };
 }
