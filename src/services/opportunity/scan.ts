@@ -479,7 +479,7 @@ export async function scanDailyOpportunities(input: {
     sourceName: string | null;
   }> = [];
   try {
-    const news = await createNewsService().listNews({ limit: 60 });
+    const news = await createNewsService().listNews({ limit: 150 });
     newsItems = news.items.map((item) => ({
       id: item.id,
       title: item.title,

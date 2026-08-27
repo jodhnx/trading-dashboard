@@ -21,17 +21,16 @@ export async function runOpportunityScanForUser(input: {
   });
 
   const persistable = [
-    ...summary.topStocks,
-    ...summary.topCrypto,
-    ...summary.topEtfs,
-    ...summary.discovered,
-    ...summary.speculative,
-    ...summary.developing,
-    ...summary.blocked,
-    ...summary.watchList.slice(0, 15),
-  ];
-  if (summary.bestStock) persistable.unshift(summary.bestStock);
-  if (summary.bestCrypto) persistable.unshift(summary.bestCrypto);
+    ...summary.all.filter(
+      (item) =>
+        item.quality !== "DATA_INSUFFICIENT" &&
+        (item.tier === "STRONG_OPPORTUNITY" ||
+          item.tier === "OPPORTUNITY" ||
+          item.tier === "WATCH" ||
+          item.tradeStatus === "BLOCKED"),
+    ),
+  ].slice(0, 250);
+
   const seen = new Set<string>();
   const unique = persistable.filter((item) => {
     if (seen.has(item.symbol)) return false;

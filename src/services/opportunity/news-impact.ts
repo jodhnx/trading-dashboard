@@ -1,5 +1,6 @@
 import type { ImpactLevel, NewsCategory, Sentiment } from "@/types/enums";
 import type { OpportunityNewsItem } from "./types";
+import { categoryLabel } from "@/services/news/classify";
 
 export type NewsImpactInput = {
   id: string;
@@ -38,20 +39,42 @@ function relevanceWeight(relevance: string): number {
 function categoryCatalystBoost(category: string): number {
   switch (category) {
     case "EARNINGS":
+    case "GUIDANCE":
+    case "REVENUE":
       return 90;
     case "REGULATION":
+    case "LEGAL":
+    case "HACK":
+    case "SECURITY":
       return 85;
+    case "INTEREST_RATES":
     case "RATES":
     case "INFLATION":
       return 80;
     case "GEOPOLITICAL":
       return 75;
     case "CRYPTO":
+    case "CRYPTO_ETF":
+    case "TOKEN_UNLOCK":
+    case "NETWORK_UPGRADE":
       return 70;
+    case "ACQUISITION":
+    case "MERGER":
+    case "PARTNERSHIP":
+    case "PRODUCT":
+    case "AI":
+      return 68;
+    case "UPGRADE":
+    case "DOWNGRADE":
+    case "ANALYST":
+      return 65;
+    case "BREAKOUT_CATALYST":
+      return 72;
     case "COMPANY":
       return 65;
     case "MACRO":
     case "MARKET":
+    case "ETF":
       return 55;
     default:
       return 35;
@@ -73,8 +96,76 @@ function recencyWeight(hours: number): number {
   return 0.15;
 }
 
+export function newsImpactLabel(score: number): "NONE" | "LOW" | "MEDIUM" | "HIGH" {
+  if (score >= 70) return "HIGH";
+  if (score >= 45) return "MEDIUM";
+  if (score >= 25) return "LOW";
+  return "NONE";
+}
+
+export function newsSentimentLabel(score: number): "POSITIVE" | "NEUTRAL" | "NEGATIVE" | "MIXED" {
+  if (score >= 65) return "POSITIVE";
+  if (score <= 35) return "NEGATIVE";
+  if (score >= 40 && score <= 55) return "MIXED";
+  return "NEUTRAL";
+}
+
+export function explainNewsImpact(input: {
+  newsScore: number;
+  sentimentScore: number;
+  topItems: OpportunityNewsItem[];
+}): string {
+  if (input.topItems.length === 0) {
+    return "No relevant news detected for this symbol in the latest stored scan.";
+  }
+  const label = newsImpactLabel(input.newsScore);
+  const sentiment = newsSentimentLabel(input.sentimentScore);
+  const top = input.topItems[0]!;
+  const category = categoryLabel(top.category);
+  if (label === "HIGH" && sentiment === "POSITIVE") {
+    return `High news impact: recent positive ${category.toLowerCase()} — ${top.title.slice(0, 80)}`;
+  }
+  if (label === "HIGH" && sentiment === "NEGATIVE") {
+    return `Negative catalyst: ${category.toLowerCase()} — ${top.title.slice(0, 80)}`;
+  }
+  if (label === "MEDIUM") {
+    return `Moderate news impact (${category.toLowerCase()}): ${top.title.slice(0, 80)}`;
+  }
+  return `Low news impact: ${top.title.slice(0, 80)}`;
+}
+
+export function deriveNewsTechnicalNote(input: {
+  quality: string;
+  tradeStatus: string;
+  newsImpactLabel: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+  newsSentimentLabel: "POSITIVE" | "NEUTRAL" | "NEGATIVE" | "MIXED";
+}): string {
+  const confirmed =
+    input.quality === "STRONG" ||
+    input.quality === "CONFIRMED" ||
+    input.tradeStatus === "ELIGIBLE";
+  const positiveNews =
+    input.newsImpactLabel === "HIGH" && input.newsSentimentLabel === "POSITIVE";
+  const negativeNews =
+    input.newsImpactLabel === "HIGH" && input.newsSentimentLabel === "NEGATIVE";
+
+  if (confirmed && positiveNews) {
+    return "Technical setup supported by recent positive catalyst.";
+  }
+  if (!confirmed && positiveNews) {
+    return "Positive catalyst detected, but technical confirmation is incomplete.";
+  }
+  if (confirmed && negativeNews) {
+    return "Technical setup exists but current negative news increases thesis risk.";
+  }
+  if (input.newsImpactLabel === "NONE") {
+    return "No material news catalyst in the latest stored scan.";
+  }
+  return "News is informational only and does not override technical gates.";
+}
+
 /**
- * Rank news impact for one symbol: impact × relevance × recency × category.
+ * Rank news impact for one symbol: relevance × recency × category × sentiment magnitude.
  * Deterministic — no LLM invention. News is optional for technically valid setups.
  */
 export function scoreNewsForSymbol(input: {
@@ -88,6 +179,12 @@ export function scoreNewsForSymbol(input: {
   headlines: string[];
   newsItems: OpportunityNewsItem[];
   ranked: Array<NewsImpactInput & { impactRank: number }>;
+  articleCount: number;
+  latestNewsAt: string | null;
+  impactLabel: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+  sentimentLabel: "POSITIVE" | "NEUTRAL" | "NEGATIVE" | "MIXED";
+  impactExplanation: string;
+  primaryCatalyst: string | null;
 } {
   const now = input.now ?? new Date();
   const symbol = input.symbol.toUpperCase();
@@ -105,16 +202,24 @@ export function scoreNewsForSymbol(input: {
       headlines: [],
       newsItems: [],
       ranked: [],
+      articleCount: 0,
+      latestNewsAt: null,
+      impactLabel: "NONE",
+      sentimentLabel: "NEUTRAL",
+      impactExplanation: "No relevant news detected for this symbol in the latest stored scan.",
+      primaryCatalyst: null,
     };
   }
 
   const ranked = relevant
     .map((item) => {
       const hours = hoursSince(item.publishedAt, now);
+      const sentimentMag = Math.abs(sentimentScore(String(item.sentiment)) - 50) / 50 + 0.5;
       const impactRank =
         relevanceWeight(String(item.relevance)) *
         recencyWeight(hours) *
-        (categoryCatalystBoost(String(item.category)) / 100);
+        (categoryCatalystBoost(String(item.category)) / 100) *
+        sentimentMag;
       return { ...item, impactRank };
     })
     .sort((a, b) => b.impactRank - a.impactRank);
@@ -135,7 +240,7 @@ export function scoreNewsForSymbol(input: {
     top.reduce((sum, item) => sum + sentimentScore(String(item.sentiment)), 0) /
     Math.max(1, top.length);
 
-  const newsItems: OpportunityNewsItem[] = top.slice(0, 3).map((item) => ({
+  const newsItems: OpportunityNewsItem[] = top.slice(0, 5).map((item) => ({
     title: item.title,
     source: item.sourceName ?? null,
     publishedAt: toIso(item.publishedAt),
@@ -145,20 +250,31 @@ export function scoreNewsForSymbol(input: {
     impactScore: Math.min(100, Math.round(item.impactRank)),
   }));
 
+  const roundedNewsScore = Math.min(100, Math.round(newsScore));
+  const roundedSentiment = Math.min(100, Math.round(sentimentAvg));
+  const impactLabel = newsImpactLabel(roundedNewsScore);
+  const sentimentLabel = newsSentimentLabel(roundedSentiment);
+
   return {
-    newsScore: Math.min(100, Math.round(newsScore)),
+    newsScore: roundedNewsScore,
     catalystScore: Math.min(100, Math.round(catalystScore)),
-    sentimentScore: Math.min(100, Math.round(sentimentAvg)),
+    sentimentScore: roundedSentiment,
     headlines: newsItems.map((item) => item.title),
     newsItems,
     ranked,
+    articleCount: relevant.length,
+    latestNewsAt: newsItems[0]?.publishedAt ?? null,
+    impactLabel,
+    sentimentLabel,
+    impactExplanation: explainNewsImpact({
+      newsScore: roundedNewsScore,
+      sentimentScore: roundedSentiment,
+      topItems: newsItems,
+    }),
+    primaryCatalyst: newsItems[0]?.category ?? null,
   };
 }
 
-/**
- * Approximate news→price response annotation when change % is known.
- * Does not invent prices — only labels an observed move next to news.
- */
 export function correlateNewsWithMove(input: {
   headline: string;
   changePercent: number | null;

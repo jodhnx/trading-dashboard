@@ -15,8 +15,8 @@ import { liveSnapshot } from "@/ai/test-fixtures";
 
 describe("phase25 release", () => {
   it("reports phase 25", () => {
-    expect(RELEASE_PHASE).toBe(25);
-    expect(APP_VERSION).toMatch(/^0\.25/);
+    expect(RELEASE_PHASE).toBe(26);
+    expect(APP_VERSION).toMatch(/^0\.26/);
   });
 });
 

@@ -14,9 +14,9 @@ describe("asset mapping", () => {
     });
   });
 
-  it("does not guess when mapping is not unique or not evidenced", () => {
+  it("returns all evidenced symbols when multiple assets match", () => {
     expect(mapNewsAssets("NVIDIA and Bitcoin both moved")).toEqual({
-      symbols: [],
+      symbols: ["NVDA", "BTC"],
       uniqueSymbol: null,
     });
     expect(mapNewsAssets("A semiconductor supplier commented")).toEqual({
@@ -36,7 +36,7 @@ describe("asset mapping", () => {
 describe("category and relevance", () => {
   it("classifies earnings, rates, and crypto from evidence", () => {
     expect(classifyCategory("NVIDIA quarterly results beat estimates")).toBe("EARNINGS");
-    expect(classifyCategory("FOMC interest rate decision")).toBe("RATES");
+    expect(classifyCategory("FOMC interest rate decision")).toBe("INTEREST_RATES");
     expect(classifyCategory("Bitcoin network activity rose")).toBe("CRYPTO");
     expect(classifyCategory("Unrelated local weather report")).toBe("OTHER");
   });

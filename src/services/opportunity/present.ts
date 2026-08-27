@@ -7,9 +7,14 @@ import {
   isActionableOpportunity,
   tradeActionLabel,
 } from "./actionable";
+import {
+  buildNewsPresentation,
+  deriveMissingConfirmation,
+  deriveWhyRanked,
+} from "./table-utils";
 
-/** Stable API candidate shape for /best and board payloads. */
-export function toOpportunityCandidate(item: RankedOpportunity) {
+/** Stable API candidate shape for opportunities board and table payloads. */
+export function toOpportunityCandidate(item: RankedOpportunity, rank?: number) {
   const confirmationLevel =
     item.quality === "STRONG" || item.quality === "CONFIRMED"
       ? item.quality
@@ -21,8 +26,10 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
 
   const action = deriveTradeAction(item);
   const actionable = isActionableOpportunity(item);
+  const news = buildNewsPresentation(item);
 
   return {
+    rank: rank ?? null,
     symbol: item.symbol,
     name: item.name,
     assetType: item.assetClass,
@@ -69,8 +76,10 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
     timeHorizon: item.holdingHorizon,
     thesis: item.thesis,
     waitingFor: item.waitingFor,
+    missingConfirmation: deriveMissingConfirmation(item),
+    whyRanked: deriveWhyRanked(item),
     invalidation: item.invalidation,
-    news: item.newsItems.slice(0, 3).map((n) => ({
+    news: item.newsItems.slice(0, 5).map((n) => ({
       source: n.source,
       publishedAt: n.publishedAt,
       headline: n.title,
@@ -79,6 +88,18 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
       impact: n.impactScore,
       relevance: n.relevance,
     })),
+    newsSummary: {
+      impactLabel: news.impactLabel,
+      sentimentLabel: news.sentimentLabel,
+      articleCount: news.articleCount,
+      latestNewsAt: news.latestNewsAt,
+      catalyst: news.catalyst,
+      impactExplanation: news.impactExplanation,
+      newsTechnicalNote: news.newsTechnicalNote,
+      newsScore: item.scores.newsScore,
+      sentimentScore: item.scores.sentimentScore,
+      catalystScore: item.scores.catalystScore,
+    },
     dataQuality: item.dataFreshness,
     dataStatus: item.dataStatus,
     marketRegime: item.marketRegime,
@@ -119,3 +140,7 @@ export function toOpportunityCandidate(item: RankedOpportunity) {
 }
 
 export type OpportunityCandidate = ReturnType<typeof toOpportunityCandidate>;
+
+export function toRankedCandidates(items: RankedOpportunity[]) {
+  return items.map((item, index) => toOpportunityCandidate(item, index + 1));
+}

@@ -86,9 +86,7 @@ export class MockNewsProvider implements NewsProvider {
   async getAssetNews(symbol: string): Promise<NewsItem[]> {
     const internal = normalizeInternalSymbol(symbol);
     const items = await this.getLatestNews();
-    return items.filter(
-      (item) => item.assetSymbols.length === 1 && item.assetSymbols[0] === internal,
-    );
+    return items.filter((item) => item.assetSymbols.includes(internal));
   }
 
   async getMarketNews(): Promise<NewsItem[]> {

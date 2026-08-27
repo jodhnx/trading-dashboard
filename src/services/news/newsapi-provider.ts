@@ -3,8 +3,8 @@ import { NewsUnavailableError } from "./errors";
 import type { NewsItem } from "./types";
 import type { NewsProvider } from "./provider";
 import { newsContentHash } from "./hash";
-import { mapNewsAssets } from "./mapping";
-import { classifyCategory, classifyRelevance } from "./classify";
+import { mapNewsAssets, buildBroadNewsQuery } from "./mapping";
+import { classifyCategory, classifyRelevance, classifySentiment } from "./classify";
 import { validateRawNews } from "./validation";
 import { newsQueryForAsset } from "./mapping";
 import { NEWS_PROVIDER_TIMEOUT_MS } from "./ttl";
@@ -12,8 +12,7 @@ import { normalizeInternalSymbol } from "@/services/market/symbols";
 
 const SOURCE_ID = "newsapi";
 const BASE_URL = "https://newsapi.org/v2";
-const LATEST_QUERY =
-  'NVIDIA OR Bitcoin OR "S&P 500" OR "Nasdaq-100" OR "Federal Reserve" OR "gold price"';
+const LATEST_QUERY = buildBroadNewsQuery();
 
 type NewsApiArticle = {
   source?: { id?: string | null; name?: string | null };
@@ -183,7 +182,7 @@ function normalizeArticle(raw: unknown, retrievedAt: Date): NewsItem | null {
     assetSymbols: mapped.symbols,
     category: classifyCategory(text),
     relevance: classifyRelevance(text),
-    sentiment: "UNKNOWN",
+    sentiment: classifySentiment(text),
     isMock: false,
     contentHash: newsContentHash({
       title: validated.title,

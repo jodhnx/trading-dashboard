@@ -37,7 +37,7 @@ describe("NewsApiProvider", () => {
     expect(items[0]?.sourceName).toBe("Reuters");
     expect(items[0]?.sourceUrl).toBe("https://www.reuters.com/nvda-1");
     expect(items[0]?.isMock).toBe(false);
-    expect(items[0]?.sentiment).toBe("UNKNOWN");
+    expect(items[0]?.sentiment).toBe("POSITIVE");
     expect(items[0]?.assetSymbols).toEqual(["NVDA"]);
     expect(items[1]?.assetSymbols).toEqual(["BTC"]);
     expect(JSON.stringify(items)).not.toContain("test-key");

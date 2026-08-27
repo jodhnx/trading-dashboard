@@ -188,6 +188,11 @@ function mapOpportunityRow(
     confidence?: number;
     thesis?: string;
     mtf?: RankedOpportunity["mtf"];
+    boardQuality?: RankedOpportunity["boardQuality"];
+    riskLevel?: RankedOpportunity["riskLevel"];
+    recommendedRiskPercent?: number | null;
+    discoveryTags?: RankedOpportunity["discoveryTags"];
+    screenScore?: number | null;
   };
 
   const tier = (row.opportunity_tier as RankedOpportunity["tier"]) ?? "WATCH";
@@ -351,6 +356,11 @@ function mapOpportunityRow(
     newsItems: breakdown.newsItems ?? [],
     confirmation: breakdown.confirmation ?? null,
     scannedAt: row.created_at,
+    boardQuality: breakdown.boardQuality ?? undefined,
+    riskLevel: breakdown.riskLevel ?? "UNKNOWN",
+    recommendedRiskPercent: breakdown.recommendedRiskPercent ?? null,
+    discoveryTags: breakdown.discoveryTags ?? [],
+    screenScore: breakdown.screenScore ?? null,
   };
 }
 
@@ -367,7 +377,7 @@ export async function listStoredOpportunities(input: {
     .eq("user_id", input.userId)
     .in("status", ["NEW", "VALID"])
     .order("created_at", { ascending: false })
-    .limit(input.limit ?? 40);
+    .limit(input.limit ?? 500);
 
   if (input.briefDate) {
     query = query.eq("scan_date", input.briefDate);
